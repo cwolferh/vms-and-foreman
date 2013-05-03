@@ -7,8 +7,11 @@ usage(){
 }
 
 fatal(){
-    echo "Fatal: $1"
+    echo "VF FATAL: $1"
     exit 1
+}
+warn(){
+    echo "VF WARN: $1"
 }
 
 function install_pkgs {
@@ -40,7 +43,7 @@ function install_pkgs {
 }
 
 hostdepends(){
-  install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git mysql-server tigervnc-server tigervnc-server-module tigervnc xorg-x11-twm xorg-x11-server-utils"
+  install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git mysql-server tigervnc-server tigervnc-server-module tigervnc xorg-x11-twm xorg-x11-server-utils ntp"
 }
 
 hostpermissive(){
@@ -227,7 +230,7 @@ startguests() {
   done
 }
 
-buildetchosts() {
+populateetchosts() {
   ATTEMPTS=30
   FAILED=0
   num_expected=$(echo $domsuffixes | awk '{print NF}')
@@ -277,7 +280,9 @@ installforeman() {
   workdir=~/foreman-astapor
   git clone git://github.com/jsomara/astapor.git $workdir
   cd $workdir
+  echo BEGIN FOREMAN INSTALLER SCRIPT
   sudo bash -x foreman_server.sh
+  echo END FOREMAN INSTALLER SCRIPT
 
   # make the client script accessible on our vm share
   test -f /tmp/foreman_client.sh || fatal "No /tmp/foreman_client.sh"
@@ -347,73 +352,146 @@ EOD
 
 }
 
+appenduserauthkeys() {
+  # add user pub key to /mnt/vm-share/authorized_keys for convenience
+
+  if [ ! -f ~/.ssh/id_rsa.pub ]; then ssh-keygen -t rsa -N '' -f ~/.ssh/id_rsa ; fi
+
+  sudo sh -c "cat $HOME/.ssh/id_rsa.pub >> /mnt/vm-share/authorized_keys"
+  sudo chmod ugo+r /mnt/vm-share/authorized_keys
+
+}
+
+ntpsetup() {
+  # setup ntp on host and guests
+  install_pkgs "ntp"
+
+  test -f /etc/ntp.conf.sav || sudo cp /etc/ntp.conf /etc/ntp.conf.sav
+
+  cat >/mnt/vm-share/ntp.conf <<EONTP
+restrict default kod nomodify notrap nopeer noquery
+restrict -6 default kod nomodify notrap nopeer noquery
+restrict 127.0.0.1
+restrict -6 ::1
+server 0.rhel.pool.ntp.org iburst
+server 1.rhel.pool.ntp.org iburst
+server 2.rhel.pool.ntp.org iburst
+EONTP
+
+  sudo cp /mnt/vm-share/ntp.conf /etc/ntp.conf
+  sudo chkconfig ntpd on
+  sudo service ntpd restart
+  for i in $domsuffixes; do
+    domname=$domprefix$i
+    if ! sudo virsh list | grep -q $domname; then
+      warn "$domname is not running"
+    else
+      sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname 'yum -y install ntp; cp /mnt/vm-share/ntp.conf /etc/ntp.conf; sudo chkconfig ntpd on; service ntpd restart'
+    fi
+  done
+}
+
+installauthkeys() {
+  # this is typically handled in the post of the kicstart,
+  # so this function only exists for convenience
+  for i in $domsuffixes; do
+    domname=$domprefix$i
+    if ! sudo virsh list | grep -q $domname; then
+      fatal "$domname is not running"
+    fi
+    sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname 'mkdir -p /root/.ssh; chmod 700 /root/.ssh; cp /mnt/vm-share/authorized_keys /root/.ssh/authorized_keys; chmod 0600 /root/.ssh/authorized_keys'
+  done
+}
+
 registerguests() {
-  echo "TODO :-)"
+  # register guest vm's to foreman
+  test -f /mnt/vm-share/foreman_client.sh || fatal "/mnt/vm-share/foreman_client.sh does not exist"
+
+  for i in $domsuffixes; do
+    domname=$domprefix$i
+    if ! sudo virsh list | grep -q $domname; then
+      warn "$domname is not running, skipping"
+    else
+      sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname "bash -x /mnt/vm-share/foreman_client.sh"
+    fi
+    exit 0
+  done
 }
 
 [[ "$#" -lt 1 ]] && usage
 case "$1" in
-     "host-depends")
-        hostdepends
-        ;;
-     "host-permissive")
-        hostpermissive
-        ;;
-     "libvirt-prep")
-	libvirtprep
-	;;
-     "vm-auth-keys")
-        vmauthkeys
-        ;;
-     "kick-first-vm")
-	kickfirstvm
-	;;
-     "create-images")
-	createimages
-	;;
-     "prep-images")
-	prepimages
-	;;
-     "first-snaps")
-	firstsnaps
-	;;
-     "start-guests")
-	startguests
-	;;
-     "populate-etc-hosts")
-	populateetchosts
-	;;
-     "install-foreman")
-	installforeman
-	;;
-     "install-mysql")
-	installmysql
-	;;
-     "foreman-with-mysql")
-	foremanwithmysql
-	;;
-     "register-guests")
-	registerguests
-	;;
-     "stop-guests")
-	stopguests
-	;;
-     "all")
-        hostdepends
-        hostpermissive
-        libvirtprep
-	vmauthkeys
-	kickfirstvm
-	createimages
-	prepimages && sleep 60 # make sure unmounted before continuing
-        firstsnaps
-	startguests
-	populateetchosts
-	installforeman
-        installmysql
-        foremanwithmysql
-        registerguests
-        ;;
-     *) usage
-        ;;
+  "host-depends")
+     hostdepends
+     ;;
+  "host-permissive")
+     hostpermissive
+     ;;
+  "libvirt-prep")
+     libvirtprep
+     ;;
+  "vm-auth-keys")
+     vmauthkeys
+     ;;
+  "kick-first-vm")
+     kickfirstvm
+     ;;
+  "create-images")
+     createimages
+     ;;
+  "prep-images")
+     prepimages
+     ;;
+  "first-snaps")
+     firstsnaps
+     ;;
+  "start-guests")
+     startguests
+     ;;
+  "populate-etc-hosts")
+     populateetchosts
+     ;;
+  "ntp-setup")
+     ntpsetup
+     ;;
+  "install-foreman")
+     installforeman
+     ;;
+  "install-mysql")
+     installmysql
+     ;;
+  "foreman-with-mysql")
+     foremanwithmysql
+     ;;
+  "register-guests")
+     registerguests
+     ;;
+  # other useful subcommands, not used in typical "all" case
+  "stop-guests")
+     stopguests
+     ;;
+  "append-user-auth-keys")
+     appenduserauthkeys
+     ;;
+  "install-auth-keys")
+     installauthkeys
+     ;;
+  "all")
+     hostdepends
+     hostpermissive
+     libvirtprep
+     vmauthkeys
+     kickfirstvm
+     createimages
+     prepimages && sleep 60 # make sure unmounted before continuing
+     firstsnaps
+     startguests
+     populateetchosts
+     ntpsetup
+     installforeman
+     #installmysql
+     #foremanwithmysql
+     registerguests
+     ;;
+  *) usage
+     ;;
 esac
