@@ -67,8 +67,8 @@ EOF
   sudo virsh net-start openstackvms
 
   # this shouldn't be necessary, but i've seen issues on rhel6...
-  sudo virsh net-define /usr/share/libvirt/networks/default.xml
-  sudo virsh net-start default
+  # sudo virsh net-define /usr/share/libvirt/networks/default.xml
+  # sudo virsh net-start default
 
 }
 
@@ -278,7 +278,7 @@ stopguests() {
 
 installforeman() {
   workdir=~/foreman-astapor
-  git clone git://github.com/jsomara/astapor.git $workdir
+  git clone git://github.com/jsomara/astapor.git -b foreman_11 $workdir
   cd $workdir
   echo BEGIN FOREMAN INSTALLER SCRIPT
   sudo bash -x foreman_server.sh
