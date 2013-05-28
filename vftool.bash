@@ -1,5 +1,5 @@
 domprefix=el64vm
-domsuffixes="1 2 3"
+domsuffixes="1 2 3 4"
 
 usage(){
     echo "Usage: $0 host-depends | all"
@@ -276,7 +276,7 @@ stopguests() {
   done
 }
 
-installforeman() {
+installforemanv1() {
   workdir=~/foreman-astapor
   git clone git://github.com/jsomara/astapor.git -b foreman_11 $workdir
   cd $workdir
@@ -287,6 +287,48 @@ installforeman() {
   # make the client script accessible on our vm share
   test -f /tmp/foreman_client.sh || fatal "No /tmp/foreman_client.sh"
   sudo mv /tmp/foreman_client.sh /mnt/vm-share/
+}
+
+installforemanv2() {
+  workdir=$HOME/foreman-installer-v2
+  mkdir -p $workdir
+  cd $workdir
+  MODULE_PATH=$workdir/modules
+
+  mkdir -p $workdir/foreman-installer
+  mkdir -p $MODULE_PATH
+  wget http://github.com/theforeman/foreman-installer/tarball/master -O - | tar xzvf - -C foreman-installer --strip-components=1
+  ln -s $workdir/foreman-installer/foreman_installer $MODULE_PATH/foreman_installer
+
+  for mod in apache concat dhcp dns foreman foreman_proxy git passenger puppet tftp xinetd ; do
+    mkdir -p $MODULE_PATH/$mod
+    wget http://github.com/theforeman/puppet-$mod/tarball/master -O - | tar xzvf - -C $MODULE_PATH/$mod --strip-components=1
+  done
+
+  cp $MODULE_PATH/foreman_installer/answers.yaml $MODULE_PATH/foreman_installer/answers.yaml.orig
+  cat >$MODULE_PATH/foreman_installer/answers.yaml <<EOY
+---
+puppet: false
+puppetmaster: false
+foreman:
+  user: foreman
+EOY
+
+  cat $MODULE_PATH/foreman_installer/answers.yaml
+
+  #echo include foreman_installer | puppet apply --modulepath $MODULE_PATH
+
+}
+
+installoldrubydeps() {
+  # using rhel6 system ruby
+  install_pkgs "yum-utils yum-rhn-plugin"
+  sudo rpm -Uvh http://download.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm
+  sudo yum-config-manager --enable rhel-6-server-optional-rpms
+  sudo yum -y install https://yum.puppetlabs.com/el/6/products/x86_64/puppetlabs-release-6-7.noarch.rpm
+  sudo yum clean all
+  install_pkgs "augeas puppet git policycoreutils-python facter"
+  sudo gem install highline
 }
 
 installmsysql() {
@@ -418,6 +460,48 @@ registerguests() {
   done
 }
 
+rebootsnaphelper() {
+  flag=$1
+  shift
+  if [ $# -eq 0 ]; then
+    echo "Give me some vm names to reboot / snap"
+    exit 1
+  fi
+  if [ "x$SNAPNAME" = "x" ]; then
+      SNAPNAME=snap_$(date +%Y%m%d_%H%M%S)
+  fi
+  for domname in $@; do
+    sudo virsh destroy $domname
+    sudo qemu-img snapshot $flag $SNAPNAME /var/lib/libvirt/images/$domname.qcow2
+    sudo virsh start $domname
+  done
+}
+
+rebootsnaprevert() {
+  if [ "x$SNAPNAME" = "x" ]; then
+    echo 'set SNAPNAME to revert to'
+    exit 1
+  fi
+  rebootsnaphelper '-a' $@
+}
+
+rebootsnaptake() {
+  rebootsnaphelper '-c' $@
+}
+
+snaplist() {
+  if [ $# -eq 0 ]; then
+    for i in $domsuffixes; do
+      domname=$domprefix$i
+      sudo qemu-img snapshot -l /var/lib/libvirt/images/$domname.qcow2
+    done
+  else
+    for domname in $@; do
+      sudo qemu-img snapshot -l /var/lib/libvirt/images/$domname.qcow2
+    done
+  fi
+}
+
 [[ "$#" -lt 1 ]] && usage
 case "$1" in
   "host-depends")
@@ -456,6 +540,9 @@ case "$1" in
   "install-foreman")
      installforeman
      ;;
+  "install-foremanv2")
+     installforemanv2
+     ;;
   "install-mysql")
      installmysql
      ;;
@@ -469,11 +556,23 @@ case "$1" in
   "stop-guests")
      stopguests
      ;;
+  "snap-list")
+     snaplist
+     ;;
+  "reboot-snap-revert")
+     rebootsnaprevert "${@:2}"
+     ;;
+  "reboot-snap-take")
+     rebootsnaptake "${@:2}"
+     ;;
   "append-user-auth-keys")
      appenduserauthkeys
      ;;
   "install-auth-keys")
      installauthkeys
+     ;;
+  "installoldrubydeps")
+     installoldrubydeps
      ;;
   "all")
      hostdepends
@@ -487,7 +586,7 @@ case "$1" in
      startguests
      populateetchosts
      ntpsetup
-     installforeman
+     installforemanv2
      #installmysql
      #foremanwithmysql
      registerguests
