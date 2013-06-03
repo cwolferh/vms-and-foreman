@@ -1,5 +1,7 @@
-domprefix=el64vm
-domsuffixes="1 2 3 4"
+domprefix=crag64vm
+domsuffixes="1 2 3 4 5"
+poolpath=/home/vms
+        #/var/lib/libvirt/images
 
 usage(){
     echo "Usage: $0 host-depends | all"
@@ -56,20 +58,44 @@ hostpermissive(){
 libvirtprep(){
   sudo /sbin/service libvirtd start
 
-  cat >/tmp/openstackvms.xml <<EOF
+  # create default pool
+  mkdir -p $poolpath
+  sudo virsh pool-destroy default
+  sudo virsh pool-define-as --name default --type dir --target $poolpath
+  sudo virsh pool-autostart default
+  sudo virsh pool-build default
+  #sudo virsh pool-dumpxml default > /tmp/pool.xml
+  #sudo sed -i "s#/var/lib/libvirt/images#$poolpath#" /tmp/pool.xml
+  #sudo virsh pool-define /tmp/pool.xml
+  # sudo virsh pool-refresh default
+  sudo virsh pool-start default
+
+  # define some networks
+for i in 1 2 3; do
+  cat >/tmp/openstackvms$i.xml <<EOF
 <network>
-  <name>openstackvms</name>
-  <bridge name="virbr1" stp="off" delay="0" />
+  <name>openstackvms$i</name>
+  <bridge name="virbr1$i" stp="off" delay="0" />
 </network>
 EOF
 
-  sudo virsh net-define /tmp/openstackvms.xml
-  sudo virsh net-start openstackvms
+  cat >/tmp/foreman$i.xml <<EOF
+<network>
+  <name>foreman$i</name>
+  <bridge name="virbr2$i" stp="off" delay="0" />
+</network>
+EOF
+
+  sudo virsh net-define /tmp/openstackvms$i.xml
+  sudo virsh net-start openstackvms$i
+  sudo virsh net-define /tmp/foreman$i.xml
+  sudo virsh net-start foreman$i
+done
 
   # this shouldn't be necessary, but i've seen issues on rhel6...
   # sudo virsh net-define /usr/share/libvirt/networks/default.xml
   # sudo virsh net-start default
-
+  sudo /sbin/service libvirtd restart
 }
 
 vmauthkeys(){
@@ -91,15 +117,18 @@ kickfirstvm(){
 [[ -z $INSTALLURL ]] && fatal "INSTALLURL Is not defined"
 
 domname="$domprefix"1
-image=/var/lib/libvirt/images/$domname.qcow2
+image=$poolpath/$domname.qcow2
 test -f $image && fatal "image $image already exists"
-sudo /usr/bin/qemu-img create -f qcow2 -o preallocation=metadata $image 8G
+sudo /usr/bin/qemu-img create -f qcow2 -o preallocation=metadata $image 9G
 
 cat >/tmp/$domname.ks <<EOD
 %packages
 @base
 @core
 nfs-utils
+emacs-nox
+emacs-common
+screen
 %end
 
 reboot
@@ -145,36 +174,40 @@ EOD
 
 sudo virt-install --connect=qemu:///system \
     --network network:default \
-    --network network:openstackvms \
+    --network network:foreman1 \
+    --network network:openstackvms1 \
     --initrd-inject=/tmp/$domname.ks \
-    --extra-args="ks=file:/$domname.ks ksdevice=eth0 noipv6 ip=dhcp" \
+    --extra-args="ks=file:/$domname.ks ksdevice=eth0 noipv6 ip=dhcp keymap=us lang=en_US" \
     --name=$domname \
     --location=$INSTALLURL \
     --disk $image,format=qcow2 \
-    --ram 1200 \
-    --vcpus=1 \
+    --ram 7000 \
+    --vcpus=6 \
     --autostart \
     --os-variant rhel6 \
     --vnc
 
-echo "view the install with:"
+echo "view the install (if you want) with:"
 echo "   virt-viewer --connect qemu+ssh://root@`hostname`/system $domname"
-echo "press enter when install is complete."
-echo "note that the guest MUST NOT BE RUNNING before continuing"
-read
-
 }
 
 createimages() {
-  if sudo virsh list | grep -q "$domprefix"1; then
-    fatal "createimages() ${domprefix}1 must not be stopped to continue"
-  fi
+  ATTEMPTS=60
+  FAILED=0
+  while [ sudo virsh list | grep -q "$domprefix"1 ]; do
+    FAILED=$(expr $FAILED + 1)
+    echo "waiting for ${domprefix}1 to stop. $FAILED"
+    if [ $FAILED -ge $ATTEMPTS ]; then
+      fatal "createimages() ${domprefix}1 must not be stopped to continue.  perhaps it is not done being installed yet."
+    fi
+    sleep 10
+  done
 
   for i in $domsuffixes; do
     if [ "$i" = "1" ]; then
       continue
     fi
-    sudo virt-clone -o "$domprefix"1 -n $domprefix$i -f /var/lib/libvirt/images/$domprefix$i.qcow2
+    sudo virt-clone -o "$domprefix"1 -n $domprefix$i -f $poolpath/$domprefix$i.qcow2
     sudo virt-sysprep -d $domprefix$i
   done
 }
@@ -189,7 +222,7 @@ prepimages() {
 
     sudo mkdir -p $mntpnt
     # when the host boots up, write a "we're here" file to /mnt/vm-share
-    sudo guestmount -a /var/lib/libvirt/images/$domname.qcow2 -i $mntpnt
+    sudo guestmount -a $poolpath/$domname.qcow2 -i $mntpnt
     echo '#!/bin/bash
 mount /mnt/vm-share' > /tmp/$domname.rc.local
     echo 'echo `ifconfig eth0 | grep "inet " | perl -p -e "s/.*inet .*?(\d\S+\d).*\\\$/\\\$1/"`' " $domname $domname.example.com> /mnt/vm-share/$domname.hello" >> /tmp/$domname.rc.local
@@ -219,7 +252,7 @@ firstsnaps() {
     if sudo virsh list | grep -q $domname; then
       fatal "firstsnaps()  $domname must not be stopped to continue"
     fi
-    sudo qemu-img snapshot -c initial_snap /var/lib/libvirt/images/$domname.qcow2
+    sudo qemu-img snapshot -c initial_snap $poolpath/$domname.qcow2
   done
 }
 
@@ -267,6 +300,31 @@ EOD
     sshhost=$domprefix$i
     sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $sshhost 'bash /mnt/vm-share/fill-etc-hosts.bash'
   done
+}
+
+populatedefaultdns() {
+  # /etc/hosts alone isn't enough to get around the dreaded
+  # "getaddrinfo: Name or service not known"
+  # so update libvirt dns
+
+  sudo virsh net-dumpxml default > /tmp/default-network.xml
+  for i in $domsuffixes; do
+    sshhost=$domprefix$i
+    macaddr=$(sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $sshhost "ifconfig eth0 | grep eth0 | perl -p -e 's/^.*HWaddr\s(\S+)\s*\$/\$1/'" )
+    ipaddr=$(resolveip -s $sshhost)
+    echo macaddr is $macaddr
+    dhcp_entry="<host mac=\"$macaddr\" name=\"$sshhost.example.com\" ip=\"$ipaddr\" />"
+    echo dhcp_entry is $dhcp_entry
+    sudo sed -i "s#</dhcp>#$(echo $dhcp_entry)\n</dhcp>#" /tmp/default-network.xml
+  done
+  sudo virsh net-destroy default
+  sudo virsh net-undefine default
+  sudo virsh net-define /tmp/default-network.xml
+  sudo virsh net-start default
+  
+  stopguests
+  sudo /etc/init.d/libvirtd restart
+  startguests
 }
 
 stopguests() {
@@ -428,7 +486,7 @@ EONTP
     if ! sudo virsh list | grep -q $domname; then
       warn "$domname is not running"
     else
-      sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname 'yum -y install ntp; cp /mnt/vm-share/ntp.conf /etc/ntp.conf; sudo chkconfig ntpd on; service ntpd restart'
+      sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname 'yum -y install ntp; cp /mnt/vm-share/ntp.conf /etc/ntp.conf; chkconfig ntpd on; service ntpd restart'
     fi
   done
 }
@@ -472,7 +530,7 @@ rebootsnaphelper() {
   fi
   for domname in $@; do
     sudo virsh destroy $domname
-    sudo qemu-img snapshot $flag $SNAPNAME /var/lib/libvirt/images/$domname.qcow2
+    sudo qemu-img snapshot $flag $SNAPNAME $poolpath/$domname.qcow2
     sudo virsh start $domname
   done
 }
@@ -493,11 +551,11 @@ snaplist() {
   if [ $# -eq 0 ]; then
     for i in $domsuffixes; do
       domname=$domprefix$i
-      sudo qemu-img snapshot -l /var/lib/libvirt/images/$domname.qcow2
+      sudo qemu-img snapshot -l $poolpath/$domname.qcow2
     done
   else
     for domname in $@; do
-      sudo qemu-img snapshot -l /var/lib/libvirt/images/$domname.qcow2
+      sudo qemu-img snapshot -l $poolpath/$domname.qcow2
     done
   fi
 }
@@ -533,6 +591,9 @@ case "$1" in
      ;;
   "populate-etc-hosts")
      populateetchosts
+     ;;
+  "populate-default-dns")
+     populatedefaultdns
      ;;
   "ntp-setup")
      ntpsetup

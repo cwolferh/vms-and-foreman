@@ -4,12 +4,9 @@ vms-and-foreman
 Build VM's from scratch on RHEL64, and install Foreman to manage them
 for openstack.
 
-Note: The *kick-first-vm subcommand* has a couple of caveats:
+Note: The *kick-first-vm subcommand* has a the caveat that
 *INSTALL_URL must be defined before the kick-first-vm subcommand is
 executed.  
-*Currently, the user must still manually connect to the
-console during the kickstart and enter the keyboard and language.
-(This needs to be fixed!)
 
 If you are using this tool to setup foreman and VM's from scratch for
 the first time, it is recommended to execute each step independently
