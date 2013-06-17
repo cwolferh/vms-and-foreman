@@ -1,7 +1,23 @@
-domprefix=crag64vm
-domsuffixes="1 2 3 4 5"
-poolpath=/home/vms
+#!/bin/bash
+
+domprefix=${DOMPREFIX:=r64vm}
+domsuffixes=${DOMSUFFIXES:="1 2 3 4 5 6"}
+poolpath=${POOLPATH:=/home/vms}
         #/var/lib/libvirt/images
+
+# todo
+# * update everywhere to use VMSET env var (derived from domprefix and
+#     domsuffix if not provided)
+# * set_vm_network <vmname> <interface #> <network name>
+#   - updates existing network interface to point to <network name>
+# * delete_vm_network <vmname> <interface #>
+# * change the names of default created networks
+#     3 nat with no dhcp named nodhcpN
+#     3 closed named closedN
+# * add underscores to function names to stop the insanity
+# * support a different named first vm, like "initvm"
+# * support cases like foreman-provisioning-test
+# * substitute 192.168.122 -> something like $default_network_ip_prefix
 
 usage(){
     echo "Usage: $0 host-depends | all"
@@ -45,7 +61,7 @@ function install_pkgs {
 }
 
 hostdepends(){
-  install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git mysql-server tigervnc-server tigervnc-server-module tigervnc xorg-x11-twm xorg-x11-server-utils ntp"
+  install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git mysql-server tigervnc-server tigervnc-server-module tigervnc xorg-x11-twm xorg-x11-server-utils ntp emacs-nox"
 }
 
 hostpermissive(){
@@ -59,7 +75,7 @@ libvirtprep(){
   sudo /sbin/service libvirtd start
 
   # create default pool
-  mkdir -p $poolpath
+  sudo mkdir -p $poolpath
   sudo virsh pool-destroy default
   sudo virsh pool-define-as --name default --type dir --target $poolpath
   sudo virsh pool-autostart default
@@ -71,23 +87,33 @@ libvirtprep(){
   sudo virsh pool-start default
 
   # define some networks
-for i in 1 2 3; do
-  cat >/tmp/openstackvms$i.xml <<EOF
+for i in 1 2; do
+  cat >/tmp/openstackvms1_$i.xml <<EOF
 <network>
-  <name>openstackvms$i</name>
+  <name>openstackvms1_$i</name>
   <bridge name="virbr1$i" stp="off" delay="0" />
+</network>
+EOF
+  cat >/tmp/openstackvms2_$i.xml <<EOF
+<network>
+  <name>openstackvms2_$i</name>
+  <bridge name="virbr2$i" stp="off" delay="0" />
 </network>
 EOF
 
   cat >/tmp/foreman$i.xml <<EOF
 <network>
   <name>foreman$i</name>
-  <bridge name="virbr2$i" stp="off" delay="0" />
+  <forward mode='nat'/>
+  <bridge name="virbr3$i" stp="on" delay="0" />
+  <ip address='192.168.10$i.1' netmask='255.255.255.0'></ip>
 </network>
 EOF
 
-  sudo virsh net-define /tmp/openstackvms$i.xml
-  sudo virsh net-start openstackvms$i
+  sudo virsh net-define /tmp/openstackvms1_$i.xml
+  sudo virsh net-start openstackvms1_$i
+  sudo virsh net-define /tmp/openstackvms2_$i.xml
+  sudo virsh net-start openstackvms2_$i
   sudo virsh net-define /tmp/foreman$i.xml
   sudo virsh net-start foreman$i
 done
@@ -96,6 +122,17 @@ done
   # sudo virsh net-define /usr/share/libvirt/networks/default.xml
   # sudo virsh net-start default
   sudo /sbin/service libvirtd restart
+}
+
+defaultnetworkip() {
+  default_ip_prefix=${DEFAULT_IP_PREFIX:=192.168.7}
+  sudo virsh net-dumpxml default > /tmp/default-network.xml
+  sudo virsh net-destroy default
+  sudo virsh net-undefine default
+  sudo sed -i "s#192.168.122#$default_ip_prefix#g" /tmp/default-network.xml
+  sudo virsh net-define /tmp/default-network.xml
+  sudo virsh net-start default
+  sudo /sbin/service libvirtd start
 }
 
 vmauthkeys(){
@@ -175,7 +212,11 @@ EOD
 sudo virt-install --connect=qemu:///system \
     --network network:default \
     --network network:foreman1 \
-    --network network:openstackvms1 \
+    --network network:openstackvms1_1 \
+    --network network:openstackvms1_2 \
+    --network network:foreman2 \
+    --network network:openstackvms2_1 \
+    --network network:openstackvms2_2 \
     --initrd-inject=/tmp/$domname.ks \
     --extra-args="ks=file:/$domname.ks ksdevice=eth0 noipv6 ip=dhcp keymap=us lang=en_US" \
     --name=$domname \
@@ -190,6 +231,13 @@ sudo virt-install --connect=qemu:///system \
 echo "view the install (if you want) with:"
 echo "   virt-viewer --connect qemu+ssh://root@`hostname`/system $domname"
 }
+
+# create images to test foreman provisioning
+# first image has 2 nic's: default + foreman1
+# 2nd and 3rd images have 3 nic's: foreman1 + openstackvms1_1 + openstackvms1_2
+#createimagesforprov() {
+#
+#}
 
 createimages() {
   ATTEMPTS=60
@@ -560,6 +608,14 @@ snaplist() {
   fi
 }
 
+# todo maybe not destroy default network given an option
+destroy_all_networks() {
+  for the_network in `sudo virsh --quiet net-list --all | awk '{print $1}'`; do
+    sudo virsh net-destroy $the_network
+    sudo virsh net-undefine $the_network
+  done
+}
+
 [[ "$#" -lt 1 ]] && usage
 case "$1" in
   "host-depends")
@@ -635,10 +691,17 @@ case "$1" in
   "installoldrubydeps")
      installoldrubydeps
      ;;
+  "default-network-ip")
+     defaultnetworkip
+     ;;
+  "destroy_all_networks")
+     destroy_all_networks
+     ;;
   "all")
      hostdepends
      hostpermissive
      libvirtprep
+     defaultnetworkip
      vmauthkeys
      kickfirstvm
      createimages

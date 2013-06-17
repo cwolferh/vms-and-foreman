@@ -16,6 +16,7 @@ the first time, it is recommended to execute each step independently
     $ bash -x vftool.bash host-depends
     $ bash -x vftool.bash host-permissive
     $ bash -x vftool.bash libvirt-prep
+    $ bash -x vftool.bash default-network-ip
     $ bash -x vftool.bash vm-auth-keys
     
     $ export INSTALLURL=http://your-top-secret-rhel6-install-tree/Server/x86_64/os/
@@ -27,6 +28,7 @@ the first time, it is recommended to execute each step independently
     $ bash -x vftool.bash first-snaps  # not necessary, but useful
     $ bash -x vftool.bash start-guests
     $ bash -x vftool.bash populate-etc-hosts
+    $ bash -x vftool.bash populate-default-dns
     $ bash -x vftool.bash ntp-setup
 
 Your three guests are now running and ready to use!  Time to install
