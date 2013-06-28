@@ -5,6 +5,12 @@ domsuffixes=${DOMSUFFIXES:="1 2 3 4 5 6"}
 poolpath=${POOLPATH:=/home/vms}
         #/var/lib/libvirt/images
 
+if [ "x$VMSET" = "x" ]; then
+  vmset=$(echo $domsuffixes | perl -p -e "s/(\S+)/$domprefix\$1/g")
+else
+  vmset=$VMSET
+fi
+
 # todo
 # * update everywhere to use VMSET env var (derived from domprefix and
 #     domsuffix if not provided)
@@ -18,6 +24,7 @@ poolpath=${POOLPATH:=/home/vms}
 # * support a different named first vm, like "initvm"
 # * support cases like foreman-provisioning-test
 # * substitute 192.168.122 -> something like $default_network_ip_prefix
+# * create /vs convenience link to /mnt/vm-share
 
 usage(){
     echo "Usage: $0 host-depends | all"
@@ -542,9 +549,8 @@ EONTP
 installauthkeys() {
   # this is typically handled in the post of the kicstart,
   # so this function only exists for convenience
-  for i in $domsuffixes; do
-    domname=$domprefix$i
-    if ! sudo virsh list | grep -q $domname; then
+  for domname in $vmset; do
+    if ! sudo virsh --quiet list | grep -q $domname; then
       fatal "$domname is not running"
     fi
     sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname 'mkdir -p /root/.ssh; chmod 700 /root/.ssh; cp /mnt/vm-share/authorized_keys /root/.ssh/authorized_keys; chmod 0600 /root/.ssh/authorized_keys'
@@ -609,11 +615,30 @@ snaplist() {
 }
 
 # todo maybe not destroy default network given an option
-destroy_all_networks() {
+delete_all_networks() {
   for the_network in `sudo virsh --quiet net-list --all | awk '{print $1}'`; do
     sudo virsh net-destroy $the_network
     sudo virsh net-undefine $the_network
   done
+  echo 'It would probably be a good idea to restart libvirtd at this point.'
+}
+
+delete_vms() {
+  for domname in $@; do
+    vol=$(sudo virsh dumpxml $domname | grep 'source file' | perl -p -e "s/^.*source file='(.*)'.*\$/\$1/")
+    echo "vol is " $vol
+    sudo virsh destroy $domname
+    sudo virsh undefine $domname
+    sudo virsh vol-delete $vol
+  done
+}
+
+# this only successfully deletes volumes in the one-volume-per-vm case
+delete_all_vms() {
+  for domname in `sudo virsh --quiet list --all | awk '{print $2}'`; do
+    destory_vms $domname
+  done
+  echo 'It would probably be a good idea to restart libvirtd at this point.'
 }
 
 [[ "$#" -lt 1 ]] && usage
@@ -694,8 +719,14 @@ case "$1" in
   "default-network-ip")
      defaultnetworkip
      ;;
-  "destroy_all_networks")
-     destroy_all_networks
+  "delete_all_networks")
+     delete_all_networks
+     ;;
+  "delete_vms")
+     delete_vms "${@:2}"
+     ;;
+  "delete_all_vms")
+     delete_all_vms
      ;;
   "all")
      hostdepends
