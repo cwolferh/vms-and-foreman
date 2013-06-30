@@ -11,6 +11,12 @@ else
   vmset=$VMSET
 fi
 
+if [ "x$INITIMAGE" = "x" ]; then
+  initimage=$(echo $vmset | perl -p -e 's/^(\S+)\s?.*$/$1/')
+else
+  initimage=$INITIMAGE
+fi
+
 # todo
 # * update everywhere to use VMSET env var (derived from domprefix and
 #     domsuffix if not provided)
@@ -160,7 +166,7 @@ kickfirstvm(){
 
 [[ -z $INSTALLURL ]] && fatal "INSTALLURL Is not defined"
 
-domname="$domprefix"1
+domname=$init_image
 image=$poolpath/$domname.qcow2
 test -f $image && fatal "image $image already exists"
 sudo /usr/bin/qemu-img create -f qcow2 -o preallocation=metadata $image 9G
@@ -636,7 +642,7 @@ delete_vms() {
 # this only successfully deletes volumes in the one-volume-per-vm case
 delete_all_vms() {
   for domname in `sudo virsh --quiet list --all | awk '{print $2}'`; do
-    destory_vms $domname
+    delete_vms $domname
   done
   echo 'It would probably be a good idea to restart libvirtd at this point.'
 }
