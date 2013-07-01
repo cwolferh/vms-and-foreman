@@ -1,9 +1,10 @@
-#!/bin/bash
+#!/Bin/bash
 
 domprefix=${DOMPREFIX:=r64vm}
 domsuffixes=${DOMSUFFIXES:="1 2 3 4 5 6"}
 poolpath=${POOLPATH:=/home/vms}
         #/var/lib/libvirt/images
+default_ip_prefix=${DEFAULT_IP_PREFIX:=o192.168.7}
 
 if [ "x$VMSET" = "x" ]; then
   vmset=$(echo $domsuffixes | perl -p -e "s/(\S+)/$domprefix\$1/g")
@@ -20,17 +21,19 @@ fi
 # todo
 # * update everywhere to use VMSET env var (derived from domprefix and
 #     domsuffix if not provided)
+# * maybe throw in a VMNETSET
 # * set_vm_network <vmname> <interface #> <network name>
 #   - updates existing network interface to point to <network name>
 # * delete_vm_network <vmname> <interface #>
 # * change the names of default created networks
+#     3 dhcp
 #     3 nat with no dhcp named nodhcpN
 #     3 closed named closedN
 # * add underscores to function names to stop the insanity
-# * support a different named first vm, like "initvm"
 # * support cases like foreman-provisioning-test
 # * substitute 192.168.122 -> something like $default_network_ip_prefix
 # * create /vs convenience link to /mnt/vm-share
+# * move /mnt/vm-share creation to new funciton, host_prep
 
 usage(){
     echo "Usage: $0 host-depends | all"
@@ -99,6 +102,24 @@ libvirtprep(){
   # sudo virsh pool-refresh default
   sudo virsh pool-start default
 
+  # this shouldn't be necessary, but i've seen issues on rhel6...
+  # sudo virsh net-define /usr/share/libvirt/networks/default.xml
+  # sudo virsh net-start default
+  sudo /sbin/service libvirtd restart
+}
+
+defaultnetworkip() {
+  #sudo virsh net-dumpxml default > /tmp/default-network.xml
+  cp /usr/share/libvirt/networks/default.xml /tmp/default-network.xml
+  sudo virsh net-destroy default
+  sudo virsh net-undefine default
+  sed -i "s#192.168.122#$default_ip_prefix#g" /tmp/default-network.xml
+  sudo virsh net-define /tmp/default-network.xml
+  sudo virsh net-start default
+  sudo /sbin/service libvirtd start
+}
+
+create_networks() {
   # define some networks
 for i in 1 2; do
   cat >/tmp/openstackvms1_$i.xml <<EOF
@@ -130,25 +151,11 @@ EOF
   sudo virsh net-define /tmp/foreman$i.xml
   sudo virsh net-start foreman$i
 done
-
-  # this shouldn't be necessary, but i've seen issues on rhel6...
-  # sudo virsh net-define /usr/share/libvirt/networks/default.xml
-  # sudo virsh net-start default
-  sudo /sbin/service libvirtd restart
 }
 
-defaultnetworkip() {
-  default_ip_prefix=${DEFAULT_IP_PREFIX:=192.168.7}
-  sudo virsh net-dumpxml default > /tmp/default-network.xml
-  sudo virsh net-destroy default
-  sudo virsh net-undefine default
-  sudo sed -i "s#192.168.122#$default_ip_prefix#g" /tmp/default-network.xml
-  sudo virsh net-define /tmp/default-network.xml
-  sudo virsh net-start default
-  sudo /sbin/service libvirtd start
-}
-
-vmauthkeys(){
+vm_auth_keys(){
+  # put current user and root ssh pub keys in /mnt/vm-share/authorized_keys
+  if [ ! -f ~/.ssh/id_rsa.pub ]; then ssh-keygen -t rsa -N '' -f ~/.ssh/id_rsa ; fi
   sudo sh -c "if [ ! -f /root/.ssh/id_rsa.pub ]; then ssh-keygen -t rsa -N '' -f /root/.ssh/id_rsa ; fi"
 
   sudo mkdir -p /mnt/vm-share
@@ -159,6 +166,8 @@ vmauthkeys(){
   fi
 
   sudo cp -f /root/.ssh/id_rsa.pub /mnt/vm-share/authorized_keys
+  sudo chown `whoami` /mnt/vm-share/authorized_keys
+  cat ~/.ssh/id_rsa.pub >> /mnt/vm-share/authorized_keys
   sudo chmod ugo+r /mnt/vm-share/authorized_keys
 }
 
@@ -166,7 +175,7 @@ kickfirstvm(){
 
 [[ -z $INSTALLURL ]] && fatal "INSTALLURL Is not defined"
 
-domname=$init_image
+domname=$initimage
 image=$poolpath/$domname.qcow2
 test -f $image && fatal "image $image already exists"
 sudo /usr/bin/qemu-img create -f qcow2 -o preallocation=metadata $image 9G
@@ -207,7 +216,7 @@ network --bootproto=dhcp --noipv6 --device=eth0
 %post
 
 mkdir -p /mnt/vm-share
-mount 192.168.122.1:/mnt/vm-share /mnt/vm-share
+mount $default_ip_prefix.1:/mnt/vm-share /mnt/vm-share
 if [ ! -d /root/.ssh ]; then
   mkdir -p /root/.ssh
   chmod 700 /root/.ssh
@@ -248,36 +257,32 @@ echo "   virt-viewer --connect qemu+ssh://root@`hostname`/system $domname"
 # create images to test foreman provisioning
 # first image has 2 nic's: default + foreman1
 # 2nd and 3rd images have 3 nic's: foreman1 + openstackvms1_1 + openstackvms1_2
-#createimagesforprov() {
+#create_imagesforprov() {
 #
 #}
 
-createimages() {
+create_images() {
   ATTEMPTS=60
   FAILED=0
-  while [ sudo virsh list | grep -q "$domprefix"1 ]; do
+  while $(sudo virsh list | grep -q "$initimage") ; do
     FAILED=$(expr $FAILED + 1)
-    echo "waiting for ${domprefix}1 to stop. $FAILED"
+    echo "waiting for $initimage to stop. $FAILED"
     if [ $FAILED -ge $ATTEMPTS ]; then
-      fatal "createimages() ${domprefix}1 must not be stopped to continue.  perhaps it is not done being installed yet."
+      fatal "create_images() $initimage must not be stopped to continue.  perhaps it is not done being installed yet."
     fi
     sleep 10
   done
 
-  for i in $domsuffixes; do
-    if [ "$i" = "1" ]; then
-      continue
-    fi
-    sudo virt-clone -o "$domprefix"1 -n $domprefix$i -f $poolpath/$domprefix$i.qcow2
-    sudo virt-sysprep -d $domprefix$i
+  for domname in $vmset; do
+    sudo virt-clone -o $initimage -n $domname -f $poolpath/$domname.qcow2 && \
+    sudo virt-sysprep -d $domname
   done
 }
 
-prepimages() {
-  for i in $domsuffixes; do
-    domname=$domprefix$i
+prep_images() {
+  for domname in $vmset; do
     if sudo virsh list | grep -q $domname; then
-      fatal "prepimages()  $domname must not be stopped to continue"
+      fatal "prep_images()  $domname must not be stopped to continue"
     fi
     mntpnt=/mnt/$domname
 
@@ -295,7 +300,7 @@ mount /mnt/vm-share' > /tmp/$domname.rc.local
 HOSTNAME=$domname.example.com' > $mntpnt/etc/sysconfig/network"
     # always mount /mnt/vm-share
     if ! sudo cat $mntpnt/etc/fstab | grep -q vm-share; then
-      sudo sh -c "echo '192.168.122.1:/mnt/vm-share /mnt/vm-share nfs defaults 0 0' >> $mntpnt/etc/fstab"
+      sudo sh -c "echo '$default_ip_prefix.1:/mnt/vm-share /mnt/vm-share nfs defaults 0 0' >> $mntpnt/etc/fstab"
     fi
     # noapic, no ipv6
     if ! sudo cat $mntpnt/boot/grub/grub.conf | grep -q 'kernel.*ipv6.disable'; then
@@ -306,28 +311,27 @@ HOSTNAME=$domname.example.com' > $mntpnt/etc/sysconfig/network"
   done
 }
 
-firstsnaps() {
+first_snaps() {
   # take initial snapshots
-  for i in $domsuffixes; do
-    domname=$domprefix$i
+  for domname in $vmset; do
     if sudo virsh list | grep -q $domname; then
-      fatal "firstsnaps()  $domname must not be stopped to continue"
+      fatal "first_snaps()  $domname must not be stopped to continue"
     fi
     sudo qemu-img snapshot -c initial_snap $poolpath/$domname.qcow2
   done
 }
 
-startguests() {
-  for i in $domsuffixes; do
-    domname=$domprefix$i
+start_guests() {
+  for domname in $vmset; do
     sudo virsh start $domname
   done
 }
 
-populateetchosts() {
+populate_etc_hosts() {
+  # maybe todo: change this to only use $vmset
   ATTEMPTS=30
   FAILED=0
-  num_expected=$(echo $domsuffixes | awk '{print NF}')
+  num_expected=$(echo $vmset | awk '{print NF}')
   count=`ls /mnt/vm-share/$domprefix*.hello | wc -w`
   while [ $count -lt $num_expected  ]; do
     FAILED=$(expr $FAILED + 1)
@@ -385,7 +389,7 @@ populatedefaultdns() {
   
   stopguests
   sudo /etc/init.d/libvirtd restart
-  startguests
+  start_guests
 }
 
 stopguests() {
@@ -513,7 +517,7 @@ EOD
 
 }
 
-appenduserauthkeys() {
+append_user_auth_keys() {
   # add user pub key to /mnt/vm-share/authorized_keys for convenience
 
   if [ ! -f ~/.ssh/id_rsa.pub ]; then ssh-keygen -t rsa -N '' -f ~/.ssh/id_rsa ; fi
@@ -523,7 +527,7 @@ appenduserauthkeys() {
 
 }
 
-ntpsetup() {
+ntp_setup() {
   # setup ntp on host and guests
   install_pkgs "ntp"
 
@@ -542,8 +546,7 @@ EONTP
   sudo cp /mnt/vm-share/ntp.conf /etc/ntp.conf
   sudo chkconfig ntpd on
   sudo service ntpd restart
-  for i in $domsuffixes; do
-    domname=$domprefix$i
+  for domname in $vmset; do
     if ! sudo virsh list | grep -q $domname; then
       warn "$domname is not running"
     else
@@ -658,32 +661,35 @@ case "$1" in
   "libvirt-prep")
      libvirtprep
      ;;
-  "vm-auth-keys")
-     vmauthkeys
+  "create_networks")
+     create_networks
+     ;;
+  "vm_auth_keys")
+     vm_auth_keys
      ;;
   "kick-first-vm")
      kickfirstvm
      ;;
-  "create-images")
-     createimages
+  "create_images")
+     create_images
      ;;
-  "prep-images")
-     prepimages
+  "prep_images")
+     prep_images
      ;;
-  "first-snaps")
-     firstsnaps
+  "first_snaps")
+     first_snaps
      ;;
-  "start-guests")
-     startguests
+  "start_guests")
+     start_guests
      ;;
-  "populate-etc-hosts")
-     populateetchosts
+  "populate_etc_hosts")
+     populate_etc_hosts
      ;;
   "populate-default-dns")
      populatedefaultdns
      ;;
-  "ntp-setup")
-     ntpsetup
+  "ntp_setup")
+     ntp_setup
      ;;
   "install-foreman")
      installforeman
@@ -713,8 +719,8 @@ case "$1" in
   "reboot-snap-take")
      rebootsnaptake "${@:2}"
      ;;
-  "append-user-auth-keys")
-     appenduserauthkeys
+  "append_user_auth_keys")
+     append_user_auth_keys
      ;;
   "install-auth-keys")
      installauthkeys
@@ -739,14 +745,15 @@ case "$1" in
      hostpermissive
      libvirtprep
      defaultnetworkip
-     vmauthkeys
+     create_networks
+     vm_auth_keys
      kickfirstvm
-     createimages
-     prepimages && sleep 60 # make sure unmounted before continuing
-     firstsnaps
-     startguests
-     populateetchosts
-     ntpsetup
+     create_images
+     prep_images && sleep 60 # make sure unmounted before continuing
+     first_snaps
+     start_guests
+     populate_etc_hosts
+     ntp_setup
      installforemanv2
      #installmysql
      #foremanwithmysql
