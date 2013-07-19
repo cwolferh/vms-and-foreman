@@ -4,7 +4,7 @@ domprefix=${DOMPREFIX:=r64vm}
 domsuffixes=${DOMSUFFIXES:="1 2 3 4 5 6"}
 poolpath=${POOLPATH:=/home/vms}
         #/var/lib/libvirt/images
-default_ip_prefix=${DEFAULT_IP_PREFIX:=o192.168.7}
+default_ip_prefix=${DEFAULT_IP_PREFIX:=192.168.7}
 
 if [ "x$VMSET" = "x" ]; then
   vmset=$(echo $domsuffixes | perl -p -e "s/(\S+)/$domprefix\$1/g")
@@ -19,21 +19,21 @@ else
 fi
 
 # todo
-# * update everywhere to use VMSET env var (derived from domprefix and
-#     domsuffix if not provided)
-# * maybe throw in a VMNETSET
-# * set_vm_network <vmname> <interface #> <network name>
-#   - updates existing network interface to point to <network name>
-# * delete_vm_network <vmname> <interface #>
-# * change the names of default created networks
-#     3 dhcp
-#     3 nat with no dhcp named nodhcpN
-#     3 closed named closedN
-# * add underscores to function names to stop the insanity
 # * support cases like foreman-provisioning-test
-# * substitute 192.168.122 -> something like $default_network_ip_prefix
 # * create /vs convenience link to /mnt/vm-share
 # * move /mnt/vm-share creation to new funciton, host_prep
+# * write and use exit_if_not_running( $domname)
+# * 
+# networking
+# * maybe throw in a VMNETSET
+# * guest_update_network <vmname> <interface #> <network name>
+#   - updates existing network interface to point to <network name>
+# * guest_del_network <vmname> <interface #>
+# * guest_del_all_networks <vmname>
+# * guest_add_network <vmname> <network name>
+# * change the names of default created networks
+#     3 nat with no dhcp named nodhcpN
+#     3 closed named closedN
 
 usage(){
     echo "Usage: $0 host-depends | all"
@@ -59,7 +59,11 @@ function install_pkgs {
 
   # Install the needed packages
   if [ "x$install_list" != "x" ]; then
-    sudo yum install -y $install_list
+    if [ `whoami` = "root" ]; then
+      yum install -y $install_list
+    else
+      sudo yum install -y $install_list
+    fi
   fi
 
   # Verify the dependencies did install
@@ -76,18 +80,18 @@ function install_pkgs {
   fi
 }
 
-hostdepends(){
+host_depends(){
   install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git mysql-server tigervnc-server tigervnc-server-module tigervnc xorg-x11-twm xorg-x11-server-utils ntp emacs-nox"
 }
 
-hostpermissive(){
+host_permissive(){
   sudo /sbin/iptables --flush
   sudo sysctl -w net.ipv4.ip_forward=1
   sudo sed -i 's/net.ipv4.ip_forward = 0/net.ipv4.ip_forward = 1/g' /etc/sysctl.conf
   sudo setenforce 0
 }
 
-libvirtprep(){
+libvirt_prep(){
   sudo /sbin/service libvirtd start
 
   # create default pool
@@ -108,7 +112,7 @@ libvirtprep(){
   sudo /sbin/service libvirtd restart
 }
 
-defaultnetworkip() {
+default_network_ip() {
   #sudo virsh net-dumpxml default > /tmp/default-network.xml
   cp /usr/share/libvirt/networks/default.xml /tmp/default-network.xml
   sudo virsh net-destroy default
@@ -119,12 +123,12 @@ defaultnetworkip() {
   sudo /sbin/service libvirtd start
 }
 
-create_networks() {
+create_foreman_networks() {
   # define some networks
-for i in 1 2; do
+for i in 1 2 3; do
   cat >/tmp/openstackvms1_$i.xml <<EOF
 <network>
-  <name>openstackvms1_$i</name>
+  <name>openstackvms2_$i</name>
   <bridge name="virbr1$i" stp="off" delay="0" />
 </network>
 EOF
@@ -171,7 +175,7 @@ vm_auth_keys(){
   sudo chmod ugo+r /mnt/vm-share/authorized_keys
 }
 
-kickfirstvm(){
+kick_first_vm(){
 
 [[ -z $INSTALLURL ]] && fatal "INSTALLURL Is not defined"
 
@@ -246,7 +250,6 @@ sudo virt-install --connect=qemu:///system \
     --disk $image,format=qcow2 \
     --ram 7000 \
     --vcpus=6 \
-    --autostart \
     --os-variant rhel6 \
     --vnc
 
@@ -277,6 +280,36 @@ create_images() {
     sudo virt-clone -o $initimage -n $domname -f $poolpath/$domname.qcow2 && \
     sudo virt-sysprep -d $domname
   done
+}
+
+clone_image() {
+  src_domname=$1
+  dest_domname=$2
+
+  if $(sudo virsh list | grep -q "$src_domname") ; then
+    fatal "clone_image() $src_domname must not be stopped to clone it."
+  fi
+  if $(sudo virsh list | grep -q "$dest_domname") ; then
+    fatal "clone_image() $dest_domname must not be stopped to clone it."
+  fi
+
+  sudo virt-clone -o $src_domname -n $dest_domname -f $poolpath/$dest_domname.qcow2 && \
+  sudo virt-sysprep -d $dest_domname
+
+  domname=$dest_domname
+  # hostname-specific updates
+  mntpnt=/mnt/$domname
+
+  sudo mkdir -p $mntpnt
+  # when the host boots up, write a "we're here" file to /mnt/vm-share
+  sudo guestmount -a $poolpath/$domname.qcow2 -i $mntpnt
+  sudo sed -i "s/$src_domname/$domname/g" $mntpnt/etc/rc.d/rc.local
+  sudo sed -i "s/$src_domname/$domname/g" $mntpnt/etc/sysconfig/network
+  sudo umount $mntpnt
+
+  echo 'Cloned!'
+  echo 'It would be a good idea to run:'
+  echo "sudo virsh start $dest_domname && sleep 120 && VMSET=$dest_domname vftool.bash populate_etc_hosts && VMSET=$dest_domname vftool.bash populate_default_dns"
 }
 
 prep_images() {
@@ -332,7 +365,12 @@ populate_etc_hosts() {
   ATTEMPTS=30
   FAILED=0
   num_expected=$(echo $vmset | awk '{print NF}')
-  count=`ls /mnt/vm-share/$domprefix*.hello | wc -w`
+  cmd="ls"
+  for domname in $vmset; do
+    cmd="$cmd /mnt/vm-share/$domname.hello"
+  done
+  count=$($cmd | wc -w)
+  #count=`ls /mnt/vm-share/$domprefix*.hello | wc -w`
   while [ $count -lt $num_expected  ]; do
     FAILED=$(expr $FAILED + 1)
     echo $FAILED
@@ -342,13 +380,18 @@ populate_etc_hosts() {
       exit 1
     fi
     sleep 10
-    count=`ls /mnt/vm-share/$domprefix*.hello | wc -w`
+
+    cmd="ls"
+    for domname in $vmset; do
+      cmd="$cmd /mnt/vm-share/$domname.hello"
+    done
+    count=$($cmd | wc -w)
+    #  count=`ls /mnt/vm-share/$domprefix*.hello | wc -w`
   done
 
   cat >/mnt/vm-share/fill-etc-hosts.bash <<EOD
-  domsuffixes="$domsuffixes"
-  for i in \$domsuffixes; do
-    domname=$domprefix\$i
+  vmset="$vmset"
+  for domname in \$vmset; do
     hosts_line=\$(cat /mnt/vm-share/\$domname.hello)
     if \$(grep -qs \$domname /etc/hosts) ;then
       perl -p -i -e "s|.*\b\$domname\b.*\$|\$hosts_line|" /etc/hosts
@@ -361,20 +404,18 @@ EOD
   sudo bash /mnt/vm-share/fill-etc-hosts.bash
 
   # do the same thing on the vm's (poor man's DNS!)
-  for i in $domsuffixes; do
-    sshhost=$domprefix$i
-    sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $sshhost 'bash /mnt/vm-share/fill-etc-hosts.bash'
+  for domname in $vmset; do
+    sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname 'bash /mnt/vm-share/fill-etc-hosts.bash'
   done
 }
 
-populatedefaultdns() {
+populate_default_dns() {
   # /etc/hosts alone isn't enough to get around the dreaded
   # "getaddrinfo: Name or service not known"
   # so update libvirt dns
 
   sudo virsh net-dumpxml default > /tmp/default-network.xml
-  for i in $domsuffixes; do
-    sshhost=$domprefix$i
+  for sshhost in $vmset; do
     macaddr=$(sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $sshhost "ifconfig eth0 | grep eth0 | perl -p -e 's/^.*HWaddr\s(\S+)\s*\$/\$1/'" )
     ipaddr=$(resolveip -s $sshhost)
     echo macaddr is $macaddr
@@ -387,16 +428,100 @@ populatedefaultdns() {
   sudo virsh net-define /tmp/default-network.xml
   sudo virsh net-start default
   
-  stopguests
+  stop_guests
   sudo /etc/init.d/libvirtd restart
   start_guests
 }
 
-stopguests() {
-  for i in $domsuffixes; do
-    domname=$domprefix$i
+remove_dns_entry() {
+  domname=$1
+  network_name=default
+  fname=/tmp/default-${network_name}.xml
+  sudo virsh net-dumpxml $network_name > $fname 
+  echo "name=[\"']$domname\\."
+  if ! $(grep -q -P "name=[\"']$domname\\." $fname); then
+    echo 'virt dns entry not present'
+  else
+    thehostline=$(grep -P "name=[\"']$domname\\." $fname)
+    #remove whitespace
+    thehostxml=`echo $thehostline | perl -p -e s'/^\s*(<host.*\/>)\s*$/$1/'`
+    # escape double quotes, just in case
+    thehostxml=`echo $thehostxml | perl -p -e s'/"/\\\\"/g'`
+    sudo virsh net-update --command delete --section ip-dhcp-host --xml "$thehostxml" $network_name
+  fi
+}
+
+stop_guests() {
+  for domname in $vmset; do
     sudo virsh destroy $domname
   done
+}
+
+install_foreman() {
+  # Make sure the VM is subscribed to the right repos before running
+  # this command.  Hint:
+  #   subscription-manager register
+  # Find the right poolID to attach using line below
+  #   subscription-manager list --available 
+  #   subscription-manager attach --pool=XXXXXX 
+  #   yum-config-manager --disable rhel-server-ost-6-preview-rpms
+  #   yum-config-manager --disable rhel-server-ost-6-folsom-rpms
+  #   yum-config-manager --enable rhel-server-ost-6-3-rpms
+  domname=$1
+  foreman_provisioning=$2
+  if [ ! -f /mnt/vm-share/vftool/vftool.bash ]; then
+    mkdir -p /mnt/vm-share/vftool
+    cp vftool.bash  /mnt/vm-share/vftool
+  fi
+  sudo ssh -t -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname "bash -x /mnt/vm-share/vftool/vftool.bash install_foreman_here $foreman_provisioning"
+}
+
+install_foreman_here() {
+  # install foreman on *this* host (i.e., you are most likely running
+  # this directly on a vm)
+  PROV_NETWORK=${PROV_NETWORK:="192.168.101"}
+
+  # foreman-related installer
+  export FOREMAN_PROVISIONING=$1
+  if [ "x$FOREMAN_PROVISIONING" = "xtrue" ]; then
+    export FOREMAN_GATEWAY=$PROV_NETWORK.1
+  else
+    export FOREMAN_GATEWAY=false
+  fi
+
+  export PRIVATE_CONTROLLER_IP=192.168.200.10
+  export PRIVATE_INTERFACE=eth1
+  export PRIVATE_NETMASK=192.168.200.0/24
+  export PUBLIC_CONTROLLER_IP=192.168.201.10
+  export PUBLIC_INTERFACE=eth2
+  export PUBLIC_NETMASK=192.168.201.0/24
+
+  # oddly, hostname --fqdn does not return a fqdn, but plain
+  # old hostname does in this setup...
+  export PUPPETMASTER=`hostname`
+
+  # intended to be run as root directly on vm
+  install_pkgs "ruby193-openstack-foreman-installer ruby193-foreman-selinux augeas"
+  if [ "x$FOREMAN_PROVISIONING" = "xtrue" ]; then
+    augtool <<EOA
+      set /files/etc/sysconfig/network-scripts/ifcfg-eth1/BOOTPROTO none
+      set /files/etc/sysconfig/network-scripts/ifcfg-eth1/IPADDR    $PROV_NETWORK.2
+      set /files/etc/sysconfig/network-scripts/ifcfg-eth1/NETMASK   255.255.255.0
+      set /files/etc/sysconfig/network-scripts/ifcfg-eth1/NM_CONTROLLED no
+      set /files/etc/sysconfig/network-scripts/ifcfg-eth1/ONBOOT    yes
+      save
+EOA
+    ifup eth1
+    
+    [[ -z $INSTALLURL ]] && INSTALLURL='http://yourrhel6mirror.com/somepath/os/x86_64'
+    ESCAPEDINSTALLURL=$(echo $INSTALLURL | perl -p -e 's/\//\\\//g')
+    perl -p -i -e "s/^m\.path=.*\$/m\.path=$ESCAPEDINSTALLURL/" \
+      /usr/share/openstack-foreman-installer/bin/seeds.rb
+    cd /usr/share/openstack-foreman-installer/bin
+    yes | ./foreman_server.sh
+ fi
+
+  
 }
 
 installforemanv1() {
@@ -517,6 +642,34 @@ EOD
 
 }
 
+install_triple_o() {
+  # following https://github.com/tripleo/incubator/blob/master/devtest.md on fedora
+  mkdir ~/tripleo
+  export TRIPLEO_ROOT=~/tripleo
+  export PATH=$PATH:$TRIPLEO_ROOT/incubator/scripts
+  cd $TRIPLEO_ROOT
+  git clone https://github.com/tripleo/incubator.git
+  sed -i "s/^ALWAYS_ELEMENTS=.*/ALWAYS_ELEMENTS='vm local-config stackuser fedora disable-selinux'/g" incubator/scripts/boot-elements
+  git clone https://github.com/tripleo/bm_poseur.git
+  git clone https://github.com/stackforge/diskimage-builder.git
+  git clone https://github.com/stackforge/tripleo-image-elements.git
+  git clone https://github.com/stackforge/tripleo-heat-templates.git
+  install-dependencies
+  setup-network
+  cd $TRIPLEO_ROOT/tripleo-image-elements/elements/boot-stack
+  sed -i "s/\"user\": \"stack\",/\"user\": \"`whoami`\",/" config.json
+
+  cd $TRIPLEO_ROOT/incubator/
+  boot-elements boot-stack -o seed
+  SEED_IP=`scripts/get-vm-ip seed`
+  export no_proxy=$no_proxy,$SEED_IP
+  scp root@$SEED_IP:stackrc $TRIPLEO_ROOT/seedrc
+  sed -i "s/localhost/$SEED_IP/" $TRIPLEO_ROOT/seedrc
+  source $TRIPLEO_ROOT/seedrc
+  create-nodes 1 512 10 3
+}
+
+
 append_user_auth_keys() {
   # add user pub key to /mnt/vm-share/authorized_keys for convenience
 
@@ -598,7 +751,7 @@ rebootsnaphelper() {
   done
 }
 
-rebootsnaprevert() {
+reboot_snap_revert() {
   if [ "x$SNAPNAME" = "x" ]; then
     echo 'set SNAPNAME to revert to'
     exit 1
@@ -606,14 +759,13 @@ rebootsnaprevert() {
   rebootsnaphelper '-a' $@
 }
 
-rebootsnaptake() {
+reboot_snap_take() {
   rebootsnaphelper '-c' $@
 }
 
-snaplist() {
+snap_list() {
   if [ $# -eq 0 ]; then
-    for i in $domsuffixes; do
-      domname=$domprefix$i
+  for domname in $vmset; do
       sudo qemu-img snapshot -l $poolpath/$domname.qcow2
     done
   else
@@ -639,6 +791,9 @@ delete_vms() {
     sudo virsh destroy $domname
     sudo virsh undefine $domname
     sudo virsh vol-delete $vol
+    sudo rm /mnt/vm-share/$domname.hello
+    sudo perl -p -i -e "s/^(.*$domname.*)\$//" /etc/hosts
+    remove_dns_entry $domname
   done
 }
 
@@ -652,26 +807,29 @@ delete_all_vms() {
 
 [[ "$#" -lt 1 ]] && usage
 case "$1" in
-  "host-depends")
-     hostdepends
+  "host_depends")
+     host_depends
      ;;
-  "host-permissive")
-     hostpermissive
+  "host_permissive")
+     host_permissive
      ;;
-  "libvirt-prep")
-     libvirtprep
+  "libvirt_prep")
+     libvirt_prep
      ;;
-  "create_networks")
-     create_networks
+  "create_foreman_networks")
+     create_foreman_networks
      ;;
   "vm_auth_keys")
      vm_auth_keys
      ;;
-  "kick-first-vm")
-     kickfirstvm
+  "kick_first_vm")
+     kick_first_vm
      ;;
   "create_images")
      create_images
+     ;;
+  "clone_image")
+     clone_image $2 $3
      ;;
   "prep_images")
      prep_images
@@ -685,17 +843,17 @@ case "$1" in
   "populate_etc_hosts")
      populate_etc_hosts
      ;;
-  "populate-default-dns")
-     populatedefaultdns
+  "populate_default_dns")
+     populate_default_dns
      ;;
   "ntp_setup")
      ntp_setup
      ;;
-  "install-foreman")
-     installforeman
+  "install_foreman")
+     install_foreman "${@:2}"
      ;;
-  "install-foremanv2")
-     installforemanv2
+  "install_foreman_here")
+     install_foreman_here $2
      ;;
   "install-mysql")
      installmysql
@@ -703,21 +861,24 @@ case "$1" in
   "foreman-with-mysql")
      foremanwithmysql
      ;;
+  "install_triple_o")
+     install_triple_o
+     ;;
   "register-guests")
      registerguests
      ;;
   # other useful subcommands, not used in typical "all" case
-  "stop-guests")
-     stopguests
+  "stop_guests")
+     stop_guests
      ;;
-  "snap-list")
-     snaplist
+  "snap_list")
+     snap_list
      ;;
-  "reboot-snap-revert")
-     rebootsnaprevert "${@:2}"
+  "reboot_snap_revert")
+     reboot_snap_revert "${@:2}"
      ;;
-  "reboot-snap-take")
-     rebootsnaptake "${@:2}"
+  "reboot_snap_take")
+     reboot_snap_take "${@:2}"
      ;;
   "append_user_auth_keys")
      append_user_auth_keys
@@ -728,8 +889,8 @@ case "$1" in
   "installoldrubydeps")
      installoldrubydeps
      ;;
-  "default-network-ip")
-     defaultnetworkip
+  "default_network_ip")
+     default_network_ip
      ;;
   "delete_all_networks")
      delete_all_networks
@@ -741,23 +902,23 @@ case "$1" in
      delete_all_vms
      ;;
   "all")
-     hostdepends
-     hostpermissive
-     libvirtprep
-     defaultnetworkip
-     create_networks
+     host_depends
+     host_permissive
+     libvirt_prep
+     default_network_ip
+     create_foreman_networks
      vm_auth_keys
-     kickfirstvm
+     kick_first_vm
      create_images
-     prep_images && sleep 60 # make sure unmounted before continuing
+     prep_images
      first_snaps
      start_guests
      populate_etc_hosts
      ntp_setup
-     installforemanv2
+     #installforemanv2
      #installmysql
      #foremanwithmysql
-     registerguests
+     #registerguests
      ;;
   *) usage
      ;;
