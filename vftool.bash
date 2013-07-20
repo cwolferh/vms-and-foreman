@@ -473,7 +473,8 @@ install_foreman() {
     mkdir -p /mnt/vm-share/vftool
     cp vftool.bash  /mnt/vm-share/vftool
   fi
-  sudo ssh -t -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname "bash -x /mnt/vm-share/vftool/vftool.bash install_foreman_here $foreman_provisioning"
+  [[ -z $INSTALLURL ]] || setinstallurl="INSTALLURL=$INSTALLURL"
+  sudo ssh -t -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname "$setinstallurl bash -x /mnt/vm-share/vftool/vftool.bash install_foreman_here $foreman_provisioning"
 }
 
 install_foreman_here() {
@@ -513,15 +514,36 @@ install_foreman_here() {
 EOA
     ifup eth1
     
-    [[ -z $INSTALLURL ]] && INSTALLURL='http://yourrhel6mirror.com/somepath/os/x86_64'
+    INSTALLURL=${INSTALLURL:='http://yourrhel6mirror.com/somepath/os/x86_64'}
     ESCAPEDINSTALLURL=$(echo $INSTALLURL | perl -p -e 's/\//\\\//g')
-    perl -p -i -e "s/^m\.path=.*\$/m\.path=$ESCAPEDINSTALLURL/" \
+    perl -p -i -e "s/^m\.path=.*\$/m\.path=\"$ESCAPEDINSTALLURL\"/" \
       /usr/share/openstack-foreman-installer/bin/seeds.rb
     cd /usr/share/openstack-foreman-installer/bin
     yes | ./foreman_server.sh
  fi
+}
 
+foreman_provisioned_vm() {
+  # create a guest and have it pxe boot from foreman
+  # TODO
+  # autopick a macaddr
+  # create the host in foreman using api
   
+  domname=$1
+  image=$poolpath/$domname.qcow2
+  sudo /usr/bin/qemu-img create -f qcow2 -o preallocation=metadata $image 9G
+  sudo virt-install --connect=qemu:///system \
+    --network network:foreman1,mac=52:54:00:BE:EF:01 \
+    --network network:openstackvms1_1 \
+    --network network:openstackvms1_2 \
+    --pxe \
+    --name=$domname \
+    --disk $image,format=qcow2 \
+    --ram 7000 \
+    --vcpus=6 \
+    --os-variant rhel6 \
+    --vnc
+
 }
 
 installforemanv1() {
