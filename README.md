@@ -31,6 +31,7 @@ the first time, it is recommended to execute each step independently
     $ bash -x vftool.bash libvirt_prep
     
     $ bash -x vftool.bash default_network_ip  # change to 192.168.7
+    $ bash -x vftool.bash create_foreman_networks
     $ bash -x vftool.bash vm_auth_keys
     
     # The following builds $INITIMAGE

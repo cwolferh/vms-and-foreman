@@ -128,7 +128,7 @@ create_foreman_networks() {
 for i in 1 2 3; do
   cat >/tmp/openstackvms1_$i.xml <<EOF
 <network>
-  <name>openstackvms2_$i</name>
+  <name>openstackvms1_$i</name>
   <bridge name="virbr1$i" stp="off" delay="0" />
 </network>
 EOF
