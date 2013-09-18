@@ -81,7 +81,7 @@ function install_pkgs {
 }
 
 host_depends(){
-  install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git mysql-server tigervnc-server tigervnc-server-module tigervnc xorg-x11-twm xorg-x11-server-utils ntp emacs-nox"
+  install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git tigervnc-server tigervnc-server-module tigervnc xorg-x11-twm xorg-x11-server-utils ntp emacs-nox"
 }
 
 host_permissive(){
@@ -342,6 +342,8 @@ HOSTNAME=$domname.example.com' > $mntpnt/etc/sysconfig/network"
     if ! sudo cat $mntpnt/boot/grub/grub.conf | grep -q 'kernel.*ipv6.disable'; then
       sudo sh -c "perl -p -i -e 's/^(\s*kernel\s+.*)\$/\$1 noapic ipv6.disable=1/' $mntpnt/boot/grub/grub.conf"
     fi
+    # ssh keys
+    sudo sh -c "mkdir -p $mntpnt/root/.ssh; chmod 700 $mntpnt/root/.ssh; cp /mnt/vm-share/authorized_keys $mntpnt/root/.ssh/authorized_keys; chmod 0600 $mntpnt/root/.ssh/authorized_keys"
     sleep 2
     sudo umount $mntpnt
   done
@@ -477,7 +479,7 @@ install_foreman() {
     cp vftool.bash  /mnt/vm-share/vftool
   fi
   [[ -z $INSTALLURL ]] || setinstallurl="INSTALLURL=$INSTALLURL"
-  sudo ssh -t -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname "$setinstallurl bash -x /mnt/vm-share/vftool/vftool.bash install_foreman_here $foreman_provisioning"
+  sudo ssh -t -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname "$setinstallurl bash -x /mnt/vm-share/vftool/vftool.bash install_foreman_here $foreman_provisioning >/tmp/$domname-foreman-install.log 2>&1"
 }
 
 install_foreman_here() {
@@ -505,7 +507,7 @@ install_foreman_here() {
   export PUPPETMASTER=`hostname`
 
   # intended to be run as root directly on vm
-  install_pkgs "ruby193-openstack-foreman-installer ruby193-foreman-selinux augeas"
+  install_pkgs "openstack-foreman-installer augeas"
   if [ "x$FOREMAN_PROVISIONING" = "xtrue" ]; then
     augtool <<EOA
       set /files/etc/sysconfig/network-scripts/ifcfg-eth1/BOOTPROTO none
