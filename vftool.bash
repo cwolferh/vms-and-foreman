@@ -89,6 +89,8 @@ host_permissive(){
   sudo sysctl -w net.ipv4.ip_forward=1
   sudo sed -i 's/net.ipv4.ip_forward = 0/net.ipv4.ip_forward = 1/g' /etc/sysctl.conf
   sudo setenforce 0
+  # TODO Fedora-ize, one adjustment of many:
+  # sudo firewall-cmd --add-service=nfs
 }
 
 libvirt_prep(){
@@ -324,7 +326,8 @@ prep_images() {
     sudo guestmount -a $poolpath/$domname.qcow2 -i $mntpnt
     echo '#!/bin/bash
 mount /mnt/vm-share' > /tmp/$domname.rc.local
-    echo 'echo `ifconfig eth0 | grep "inet " | perl -p -e "s/.*inet .*?(\d\S+\d).*\\\$/\\\$1/"`' " $domname $domname.example.com> /mnt/vm-share/$domname.hello" >> /tmp/$domname.rc.local
+    echo 'echo `ifconfig eth0 | grep "inet " | perl -p -e "s/.*inet .*?(\d\S+\d).*\\\$/\\\$1/"`' " $domname.example.com $domname> /mnt/vm-share/$domname.hello" >> /tmp/$domname.rc.local
+    echo '/etc/init.d/ntpd stop; ntpdate clock.redhat.com; /etc/init.d/ntpd start;' >> /tmp/$domname.rc.local
     sudo cp /tmp/$domname.rc.local $mntpnt/etc/rc.d/rc.local
     sudo chmod ugo+x $mntpnt/etc/rc.d/rc.local
     # disable selinux if the kickstart did not
@@ -703,6 +706,7 @@ append_user_auth_keys() {
 }
 
 ntp_setup() {
+  # TODO: this all should happen in prep_images instead
   # setup ntp on host and guests
   install_pkgs "ntp"
 
