@@ -46,6 +46,7 @@ the first time, it is recommended to execute each step independently
     $ bash -x vftool.bash populate_etc_hosts
     $ bash -x vftool.bash populate_default_dns
     # wait for host(s) to start up
+    # probably not necessary with latest tweaks
     $ bash -x vftool.bash ntp_setup
 
 The guests in $VMSET are now ready to use.
@@ -53,13 +54,13 @@ The guests in $VMSET are now ready to use.
 If using foreman for provisioning:
 
     # Make sure set1fore1 is subscribed only to RHOS and RHEL6
-    $ bash -x vftool.bash install-foreman set1fore1 true
+    $ bash -x vftool.bash install_foreman set1fore1 true
     #                                               ^^ provisioning-mode is true
 
 If using foreman not in provisioning-mode:
 
     # Make sure set1fore1 is subscribed only to RHOS and RHEL6
-    $ bash -x vftool.bash install-foreman set1fore1 false
+    $ bash -x vftool.bash install_foreman set1fore1 false
     #                                               ^^ provisioning-mode is false
     $ # bash -x vftool.bash register-guests TODO
   
