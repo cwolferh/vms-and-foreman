@@ -1,4 +1,4 @@
-#!/Bin/bash
+#!/bin/bash
 
 domprefix=${DOMPREFIX:=r64vm}
 domsuffixes=${DOMSUFFIXES:="1 2 3 4 5 6"}
