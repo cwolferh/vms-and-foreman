@@ -80,6 +80,20 @@ function install_pkgs {
   fi
 }
 
+destroy_if_running() {
+   domname=$1
+   if ! $(sudo virsh domstate $domname | grep -q 'shut off'); then
+     sudo virsh destroy $domname
+   fi
+}
+
+start_if_not_running() {
+   domname=$1
+   if ! $(sudo virsh domstate $domname | grep -q 'running'); then
+     sudo virsh start $domname
+   fi
+}
+
 host_depends(){
   install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git tigervnc-server tigervnc-server-module tigervnc xorg-x11-twm xorg-x11-server-utils ntp emacs-nox"
 }
@@ -361,7 +375,7 @@ first_snaps() {
 
 start_guests() {
   for domname in $vmset; do
-    sudo virsh start $domname
+    start_if_not_running $domname
   done
 }
 
@@ -458,7 +472,7 @@ remove_dns_entry() {
 
 stop_guests() {
   for domname in $vmset; do
-    sudo virsh destroy $domname
+    destroy_if_running $domname
   done
 }
 
@@ -773,7 +787,7 @@ rebootsnaphelper() {
       SNAPNAME=snap_$(date +%Y%m%d_%H%M%S)
   fi
   for domname in $@; do
-    sudo virsh destroy $domname
+    destroy_if_running $domname
     sudo qemu-img snapshot $flag $SNAPNAME $poolpath/$domname.qcow2
     sudo virsh start $domname
   done
@@ -816,7 +830,7 @@ delete_vms() {
   for domname in $@; do
     vol=$(sudo virsh dumpxml $domname | grep 'source file' | perl -p -e "s/^.*source file='(.*)'.*\$/\$1/")
     echo "vol is " $vol
-    sudo virsh destroy $domname
+    destroy_if_running $domname
     sudo virsh undefine $domname
     sudo virsh vol-delete $vol
     sudo rm /mnt/vm-share/$domname.hello
