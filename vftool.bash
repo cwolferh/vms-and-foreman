@@ -736,7 +736,7 @@ EONTP
   done
 }
 
-installauthkeys() {
+install_auth_keys() {
   # this is typically handled in the post of the kicstart,
   # so this function only exists for convenience
   for domname in $vmset; do
@@ -911,8 +911,8 @@ case "$1" in
   "append_user_auth_keys")
      append_user_auth_keys
      ;;
-  "install-auth-keys")
-     installauthkeys
+  "install_auth_keys")
+     install_auth_keys
      ;;
   "installoldrubydeps")
      installoldrubydeps
