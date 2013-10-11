@@ -95,7 +95,9 @@ start_if_not_running() {
 }
 
 host_depends(){
-  install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git tigervnc-server tigervnc-server-module tigervnc xorg-x11-twm xorg-x11-server-utils ntp emacs-nox"
+  install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git
+  tigervnc-server tigervnc-server-module tigervnc xorg-x11-twm
+  xorg-x11-server-utils ntp emacs-nox virt-install virt-viewer"
 }
 
 host_permissive(){
@@ -135,8 +137,9 @@ default_network_ip() {
   sudo virsh net-undefine default
   sed -i "s#192.168.122#$default_ip_prefix#g" /tmp/default-network.xml
   sudo virsh net-define /tmp/default-network.xml
-  sudo virsh net-start default
+  sudo virsh net-autostart default
   sudo /sbin/service libvirtd start
+  sudo virsh net-start default
 }
 
 create_foreman_networks() {
@@ -166,10 +169,13 @@ EOF
 
   sudo virsh net-define /tmp/openstackvms1_$i.xml
   sudo virsh net-start openstackvms1_$i
+  sudo virsh net-autostart openstackvms1_$i
   sudo virsh net-define /tmp/openstackvms2_$i.xml
   sudo virsh net-start openstackvms2_$i
+  sudo virsh net-autostart openstackvms2_$i
   sudo virsh net-define /tmp/foreman$i.xml
   sudo virsh net-start foreman$i
+  sudo virsh net-autostart foreman$i
 done
 }
 
@@ -446,9 +452,11 @@ populate_default_dns() {
   sudo virsh net-undefine default
   sudo virsh net-define /tmp/default-network.xml
   sudo virsh net-start default
+  sudo virsh net-autostart default
   
   stop_guests
   sudo /etc/init.d/libvirtd restart
+  sudo virsh net-start default
   start_guests
 }
 
