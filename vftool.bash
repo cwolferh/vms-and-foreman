@@ -36,8 +36,7 @@ fi
 #     3 closed named closedN
 
 usage(){
-    echo "Usage: $0 host-depends | all"
-    exit 1
+    echo "Usage: See the README.md :-)"
 }
 
 fatal(){
@@ -438,14 +437,19 @@ populate_default_dns() {
   # /etc/hosts alone isn't enough to get around the dreaded
   # "getaddrinfo: Name or service not known"
   # so update libvirt dns
+  # TODO don't depend on hosts being /etc/hosts
 
   sudo virsh net-dumpxml default > /tmp/default-network.xml
   for sshhost in $vmset; do
     macaddr=$(sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $sshhost "ifconfig eth0 | grep eth0 | perl -p -e 's/^.*HWaddr\s(\S+)\s*\$/\$1/'" )
+    if [ "x$macaddr" = "x" ]; then
+       fatal "Failed to get \$macaddr for $sshhost.  (next step is probably to determine why the host did not end up in /etc/hosts which is usually because /mnt/vm-share/$sshhost.hello did not get written due to an nfs issue)" 
+    fi
     ipaddr=$(resolveip -s $sshhost)
-    echo macaddr is $macaddr
+    if `grep -q $sshhost.example.com /tmp/default-network.xml`; then
+      fatal "$sshhost already exists in /tmp/default-network.xml, you may need to update your the default network manually"
+    fi
     dhcp_entry="<host mac=\"$macaddr\" name=\"$sshhost.example.com\" ip=\"$ipaddr\" />"
-    echo dhcp_entry is $dhcp_entry
     sudo sed -i "s#</dhcp>#$(echo $dhcp_entry)\n</dhcp>#" /tmp/default-network.xml
   done
   sudo virsh net-destroy default
@@ -505,11 +509,14 @@ install_foreman() {
 }
 
 install_foreman_here() {
+  # override this if want to test against locally cloned
+  # redhat-openstack/astpaor repo
+  INSTALLER_DIR=${INSTALLER_DIR:=/usr/share/openstack-foreman-installer/bin}
+
   # install foreman on *this* host (i.e., you are most likely running
   # this directly on a vm)
   PROV_NETWORK=${PROV_NETWORK:="192.168.101"}
 
-  # foreman-related installer
   export FOREMAN_PROVISIONING=$1
   if [ "x$FOREMAN_PROVISIONING" = "xtrue" ]; then
     export FOREMAN_GATEWAY=$PROV_NETWORK.1
@@ -545,9 +552,9 @@ EOA
     ESCAPEDINSTALLURL=$(echo $INSTALLURL | perl -p -e 's/\//\\\//g')
     perl -p -i -e "s/^m\.path=.*\$/m\.path=\"$ESCAPEDINSTALLURL\"/" \
       /usr/share/openstack-foreman-installer/bin/seeds.rb
-    cd /usr/share/openstack-foreman-installer/bin
-    yes | ./foreman_server.sh
  fi
+  cd $INSTALLER_DIR
+  yes | ./foreman_server.sh
 }
 
 foreman_provisioned_vm() {
@@ -815,7 +822,7 @@ reboot_snap_take() {
 
 snap_list() {
   if [ $# -eq 0 ]; then
-  for domname in $vmset; do
+    for domname in $vmset; do
       sudo qemu-img snapshot -l $poolpath/$domname.qcow2
     done
   else
@@ -853,6 +860,13 @@ delete_all_vms() {
     delete_vms $domname
   done
   echo 'It would probably be a good idea to restart libvirtd at this point.'
+}
+
+# this only successfully deletes volumes in the one-volume-per-vm case
+stop_all() {
+  for domname in `sudo virsh --quiet list | awk '{print $2}'`; do
+    destroy_if_running $domname
+  done
 }
 
 [[ "$#" -lt 1 ]] && usage
@@ -921,8 +935,11 @@ case "$1" in
   "stop_guests")
      stop_guests
      ;;
+  "stop_all")
+     stop_all
+     ;;
   "snap_list")
-     snap_list
+     snap_list "${@:2}"
      ;;
   "reboot_snap_revert")
      reboot_snap_revert "${@:2}"
@@ -964,7 +981,6 @@ case "$1" in
      first_snaps
      start_guests
      populate_etc_hosts
-     ntp_setup
      #installforemanv2
      #installmysql
      #foremanwithmysql
