@@ -98,7 +98,7 @@ destroy_if_running() {
    check='$(sudo virsh domstate '$domname' | grep -q "shut off")'
    if ! eval $check; then
      echo 'trying graceful shutdown for ' $domname
-     ssh root@$domname "shutdown -h now"
+     ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" root@$domname "shutdown -h now"
      if [ $? -eq 255 ]; then
        echo "unable to ssh to host, calling virsh destroy $domname"
        sudo virsh destroy $domname
@@ -875,7 +875,7 @@ delete_vms() {
     sudo virsh undefine $domname
     sudo virsh vol-delete $vol
     sudo rm /mnt/vm-share/$domname.hello
-    sudo perl -p -i -e "s/^(.*$domname.*)\$//" /etc/hosts
+    sudo perl -p -i -e "s/^(.*$domname.*)\n\$//" /etc/hosts
     remove_dns_entry $domname
   done
 }
