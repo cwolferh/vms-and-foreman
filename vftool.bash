@@ -47,6 +47,20 @@ warn(){
     echo "VF WARN: $1"
 }
 
+#thanks to tripleo-ci/toci_functions.sh
+wait_for(){
+  LOOPS=$1
+  SLEEPTIME=$2
+  shift ; shift
+  i=0
+  while [ $i -lt $LOOPS ] ; do
+    i=$((i + 1))
+   eval "$@" && return 0 || true
+   sleep $SLEEPTIME
+  done
+  return 1
+}
+
 function install_pkgs {
   depends=$1
   install_list=""
@@ -81,8 +95,20 @@ function install_pkgs {
 
 destroy_if_running() {
    domname=$1
-   if ! $(sudo virsh domstate $domname | grep -q 'shut off'); then
-     sudo virsh destroy $domname
+   check='$(sudo virsh domstate '$domname' | grep -q "shut off")'
+   if ! eval $check; then
+     echo 'trying graceful shutdown for ' $domname
+     ssh root@$domname "shutdown -h now"
+     if [ $? -eq 255 ]; then
+       echo "unable to ssh to host, calling virsh destroy $domname"
+       sudo virsh destroy $domname
+       return
+     fi
+     wait_for 60 1 $check
+     if [ $? -ne 0 ]; then
+       echo "so much for graceful, calling virsh destroy $domname"
+       sudo virsh destroy $domname
+     fi
    fi
 }
 
@@ -552,9 +578,9 @@ EOA
     ESCAPEDINSTALLURL=$(echo $INSTALLURL | perl -p -e 's/\//\\\//g')
     perl -p -i -e "s/^m\.path=.*\$/m\.path=\"$ESCAPEDINSTALLURL\"/" \
       /usr/share/openstack-foreman-installer/bin/seeds.rb
- fi
+  fi
   cd $INSTALLER_DIR
-  yes | ./foreman_server.sh
+  yes | bash -x ./foreman_server.sh
 }
 
 foreman_provisioned_vm() {
