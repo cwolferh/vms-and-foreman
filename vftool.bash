@@ -871,7 +871,7 @@ delete_vms() {
   for domname in $@; do
     vol=$(sudo virsh dumpxml $domname | grep 'source file' | perl -p -e "s/^.*source file='(.*)'.*\$/\$1/")
     echo "vol is " $vol
-    destroy_if_running $domname
+    sudo virsh destroy $domname
     sudo virsh undefine $domname
     sudo virsh vol-delete $vol
     sudo rm /mnt/vm-share/$domname.hello
