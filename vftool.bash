@@ -122,7 +122,7 @@ start_if_not_running() {
 host_depends(){
   install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git
   tigervnc-server tigervnc-server-module tigervnc xorg-x11-twm
-  xorg-x11-server-utils ntp emacs-nox virt-install virt-viewer"
+  xorg-x11-server-utils ntp emacs-nox python-virtinst virt-viewer nc"
 }
 
 host_permissive(){
