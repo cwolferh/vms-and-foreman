@@ -724,34 +724,6 @@ EOD
 
 }
 
-install_triple_o() {
-  # following https://github.com/tripleo/incubator/blob/master/devtest.md on fedora
-  mkdir ~/tripleo
-  export TRIPLEO_ROOT=~/tripleo
-  export PATH=$PATH:$TRIPLEO_ROOT/incubator/scripts
-  cd $TRIPLEO_ROOT
-  git clone https://github.com/tripleo/incubator.git
-  sed -i "s/^ALWAYS_ELEMENTS=.*/ALWAYS_ELEMENTS='vm local-config stackuser fedora disable-selinux'/g" incubator/scripts/boot-elements
-  git clone https://github.com/tripleo/bm_poseur.git
-  git clone https://github.com/stackforge/diskimage-builder.git
-  git clone https://github.com/stackforge/tripleo-image-elements.git
-  git clone https://github.com/stackforge/tripleo-heat-templates.git
-  install-dependencies
-  setup-network
-  cd $TRIPLEO_ROOT/tripleo-image-elements/elements/boot-stack
-  sed -i "s/\"user\": \"stack\",/\"user\": \"`whoami`\",/" config.json
-
-  cd $TRIPLEO_ROOT/incubator/
-  boot-elements boot-stack -o seed
-  SEED_IP=`scripts/get-vm-ip seed`
-  export no_proxy=$no_proxy,$SEED_IP
-  scp root@$SEED_IP:stackrc $TRIPLEO_ROOT/seedrc
-  sed -i "s/localhost/$SEED_IP/" $TRIPLEO_ROOT/seedrc
-  source $TRIPLEO_ROOT/seedrc
-  create-nodes 1 512 10 3
-}
-
-
 append_user_auth_keys() {
   # add user pub key to /mnt/vm-share/authorized_keys for convenience
 
@@ -950,9 +922,6 @@ case "$1" in
      ;;
   "foreman-with-mysql")
      foremanwithmysql
-     ;;
-  "install_triple_o")
-     install_triple_o
      ;;
   "register-guests")
      registerguests
