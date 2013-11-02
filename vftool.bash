@@ -471,7 +471,10 @@ populate_default_dns() {
     if [ "x$macaddr" = "x" ]; then
        fatal "Failed to get \$macaddr for $sshhost.  (next step is probably to determine why the host did not end up in /etc/hosts which is usually because /mnt/vm-share/$sshhost.hello did not get written due to an nfs issue)" 
     fi
-    ipaddr=$(resolveip -s $sshhost)
+    ipaddr=$(grep "$sshhost.example.com" /etc/hosts | perl -p -i -e 's/^(\S+)\s+.*$/$1/')
+    if [ "x$ipaddr" = "x" ]; then
+      fatal "Failed find ipaddr for $sshhost.example.com in /etc/hosts"5B
+    fi
     if `grep -q $sshhost.example.com /tmp/default-network.xml`; then
       fatal "$sshhost already exists in /tmp/default-network.xml, you may need to update your the default network manually"
     fi
