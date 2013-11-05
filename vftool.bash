@@ -473,7 +473,7 @@ populate_default_dns() {
     fi
     ipaddr=$(grep "$sshhost.example.com" /etc/hosts | perl -p -i -e 's/^(\S+)\s+.*$/$1/')
     if [ "x$ipaddr" = "x" ]; then
-      fatal "Failed find ipaddr for $sshhost.example.com in /etc/hosts"5B
+      fatal "Failed find ipaddr for $sshhost.example.com in /etc/hosts"
     fi
     if `grep -q $sshhost.example.com /tmp/default-network.xml`; then
       fatal "$sshhost already exists in /tmp/default-network.xml, you may need to update your the default network manually"
