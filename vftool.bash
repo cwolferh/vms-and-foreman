@@ -835,6 +835,27 @@ snap_list() {
   fi
 }
 
+configure_nic() {
+  domname=$1
+  type=$2  # only "static" supported now
+  iface=$3
+  ipaddr=$4
+  netmask=$5
+
+  mkdir -p /mnt/vm-share/tmp/nic
+  cat >/mnt/vm-share/tmp/nic/$domname-$iface.aug <<EOA
+      set /files/etc/sysconfig/network-scripts/ifcfg-$iface/BOOTPROTO none
+      set /files/etc/sysconfig/network-scripts/ifcfg-$iface/IPADDR    $ipaddr
+      set /files/etc/sysconfig/network-scripts/ifcfg-$iface/NETMASK   $netmask
+      set /files/etc/sysconfig/network-scripts/ifcfg-$iface/NM_CONTROLLED no
+      set /files/etc/sysconfig/network-scripts/ifcfg-$iface/ONBOOT    yes
+      save
+EOA
+
+  ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" root@$domname \
+    "augtool -f /mnt/vm-share/tmp/nic/$domname-$iface.aug; /sbin/ifup $iface"
+}
+
 # todo maybe not destroy default network given an option
 delete_all_networks() {
   for the_network in `sudo virsh --quiet net-list --all | awk '{print $1}'`; do
@@ -955,6 +976,9 @@ case "$1" in
      ;;
   "installoldrubydeps")
      installoldrubydeps
+     ;;
+  "configure_nic")
+     configure_nic "${@:2}"
      ;;
   "default_network_ip")
      default_network_ip
