@@ -100,15 +100,12 @@ destroy_if_running() {
      echo 'trying graceful shutdown for ' $domname
      ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" root@$domname "sync; shutdown -h now"
      if [ $? -eq 255 ]; then
-       echo "unable to ssh to host, calling virsh shutdown $domname"
-       sudo virsh shutdown $domname
-       return
+       echo "unable to ssh to host"
+     else
+       wait_for 30 1 $check
      fi
-     wait_for 30 1 $check
-     if [ $? -ne 0 ]; then
-       echo "so much for ssh, calling virsh shutdown $domname"
-       sudo virsh shutdown $domname
-     fi
+     echo "so much for ssh, calling virsh shutdown $domname"
+     sudo virsh shutdown $domname
      wait_for 40 1 $check
      if [ $? -ne 0 ]; then
        echo "so much for graceful virsh shutdown, calling virsh destroy $domname"
