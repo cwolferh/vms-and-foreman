@@ -114,6 +114,23 @@ destroy_if_running() {
    fi
 }
 
+wait_for_port() {
+  port=$1
+
+  the_cmd="true"
+  for vm in $VMSET; do
+    the_cmd="$the_cmd && nc -w1 -z $vm $port"
+  done
+  eval $the_cmd > /dev/null
+  exit_status=$?
+  while [[ $exit_status -ne 0 ]] ; do
+    echo -n .
+    sleep 6
+    eval $the_cmd > /dev/null
+    exit_status=$?
+  done
+}
+
 start_if_not_running() {
    domname=$1
    if ! $(sudo virsh domstate $domname | grep -q 'running'); then
@@ -978,6 +995,9 @@ case "$1" in
      ;;
   "installoldrubydeps")
      installoldrubydeps
+     ;;
+  "wait_for_port")
+     wait_for_port "${@:2}"
      ;;
   "configure_nic")
      configure_nic "${@:2}"
