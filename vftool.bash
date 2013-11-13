@@ -296,7 +296,9 @@ sudo virt-install --connect=qemu:///system \
     --location=$INSTALLURL \
     --disk $image,format=qcow2 \
     --ram 7000 \
-    --vcpus=6 \
+    --vcpus 3 \
+    --cpu host \
+    --hvm \
     --os-variant rhel6 \
     --vnc
 
