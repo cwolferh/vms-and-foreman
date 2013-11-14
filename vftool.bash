@@ -258,6 +258,7 @@ nfs-utils
 emacs-nox
 emacs-common
 screen
+nc
 %end
 
 reboot
