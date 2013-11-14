@@ -276,11 +276,11 @@ logging --level=info
 timezone  America/Los_Angeles
 bootloader --location=mbr --append="console=tty0 console=ttyS0,115200 rd_NO_PLYMOUTH"
 clearpart --all
-part /boot --fstype ext4 --size=100
+part /boot --fstype ext4 --size=400
 part swap --size=100
-part pv.01 --size=5000
+part pv.01 --size=8000
 volgroup lv_admin --pesize=32768 pv.01
-logvol / --fstype ext4 --name=lv_root --vgname=lv_admin --size=4000 --grow
+logvol / --fstype ext4 --name=lv_root --vgname=lv_admin --size=7000 --grow
 zerombr
 network --bootproto=dhcp --noipv6 --device=eth0
 
