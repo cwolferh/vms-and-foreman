@@ -103,6 +103,9 @@ destroy_if_running() {
        echo "unable to ssh to host"
      else
        wait_for 30 1 $check
+       if [ $? -eq 0 ]; then
+         return  
+       fi
      fi
      echo "so much for ssh, calling virsh shutdown $domname"
      sudo virsh shutdown $domname
