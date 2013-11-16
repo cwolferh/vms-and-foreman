@@ -442,6 +442,8 @@ start_guests() {
 }
 
 resize_image() {
+  # warning: this doesn't always work, sometimes see:
+  #   Fatal error: exception Guestfs.Error("resize2fs: e2fsck 1.41.12 (17-May-2010)")
   if [ $# -ne 2 ]; then
     echo "usage: vftool.bash resize_image your_vm_name new_disk_size"
     echo " e.g.: vftool.bash resize_image myvmname 200G"
