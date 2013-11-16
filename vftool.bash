@@ -435,6 +435,39 @@ start_guests() {
   done
 }
 
+resize_image() {
+  if [ $# -ne 2 ]; then
+    echo "usage: vftool.bash resize_image your_vm_name new_disk_size"
+    echo " e.g.: vftool.bash resize_image myvmname 200G"
+    echo "note that new image will still be sparse."
+    exit 1
+  fi 
+
+  domname=$1
+  newdisksize=$2
+  partition=${RESIZE_PARTITION:=/dev/sda2}
+  lv=${RESIZE_LV:=/dev/lv_admin/lv_root}
+
+  if sudo virsh list | grep -qP "\\s$domname\\s"; then
+     echo "$domname is running.  Shut it down before trying something so drastic!"
+     exit 1
+  fi
+
+  imgname=$poolpath/$domname.qcow2
+  imgnameold=$poolpath/${domname}old.qcow2
+
+  sudo mv $imgname $imgnameold
+
+  echo "Just FYI, this is what we are working with:"
+  sudo virt-filesystems --long -h --all -a $imgnameold
+  
+  sudo qemu-img create -f qcow2 -o preallocation=metadata $imgname $newdisksize  
+  sudo virt-resize --expand $partition --LV-expand $lv $imgnameold $imgname
+
+  echo "Cowardly refusing to clean up the old image.  You'll probably want to:"
+  echo "sudo rm $imgnameold"
+}
+
 populate_etc_hosts() {
   # maybe todo: change this to only use $vmset
   ATTEMPTS=30
@@ -1017,6 +1050,9 @@ case "$1" in
      ;;
   "delete_all_vms")
      delete_all_vms
+     ;;
+  "resize_image")
+     resize_image "${@:2}"
      ;;
   "all")
      host_depends

@@ -74,10 +74,20 @@ If using foreman not in provisioning-mode:
 Other useful commands
 
     $ bash -x vftool.bash delete_all_networks
+
     $ bash -x vftool.bash delete_all_vms
+
     $ bash -x vftool.bash delete_vms <vm_name1> <vn_name2> ...
+
     $ SNAPNAME=mysnap bash -x vftool.bash reboot_snap_take <vm_name1> <vn_name2> ...
+
     $ SNAPNAME=mysnap bash -x vftool.bash reboot_snap_revert <vm_name1> <vn_name2> ...
+
     $ bash -x vftool.bash snap_list <vm_name1> <vn_name2> ...
+
     # stop all running guests
     $ bash -x vftool.bash stop_all 
+
+    # resize vm's root partition to fill 200G image
+    # (assume partition layout derives from vftool.bash's kickstart)
+    $ bash -x vftool.bash resize_image myvmname 200G
