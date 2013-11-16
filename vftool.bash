@@ -430,9 +430,15 @@ first_snaps() {
 }
 
 start_guests() {
-  for domname in $vmset; do
-    start_if_not_running $domname
-  done
+  if [ $# -eq 0 ]; then
+    for domname in $vmset; do
+      start_if_not_running $domname
+    done
+  else
+    for domname in $@; do
+      start_if_not_running $domname
+    done
+  fi
 }
 
 resize_image() {
@@ -570,9 +576,15 @@ remove_dns_entry() {
 }
 
 stop_guests() {
-  for domname in $vmset; do
-    destroy_if_running $domname
-  done
+  if [ $# -eq 0 ]; then
+    for domname in $vmset; do
+      destroy_if_running $domname
+    done
+  else
+    for domname in $@; do
+      destroy_if_running $domname
+    done
+  fi
 }
 
 install_foreman() {
@@ -982,7 +994,7 @@ case "$1" in
      first_snaps
      ;;
   "start_guests")
-     start_guests
+     start_guests "${@:2}"
      ;;
   "populate_etc_hosts")
      populate_etc_hosts
@@ -1010,7 +1022,7 @@ case "$1" in
      ;;
   # other useful subcommands, not used in typical "all" case
   "stop_guests")
-     stop_guests
+     stop_guests "${@:2}"
      ;;
   "stop_all")
      stop_all
