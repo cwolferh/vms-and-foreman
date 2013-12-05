@@ -905,6 +905,17 @@ snap_list() {
   fi
 }
 
+run() {
+  if [ $# -eq 0 ]; then
+    echo "Give me a command to run on $VMSET"
+    exit 1
+  fi
+  for domname in $vmset; do
+    ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" root@$domname $@
+  done
+
+}
+
 configure_nic() {
   domname=$1
   type=$2  # only "static" supported now
@@ -1052,6 +1063,9 @@ case "$1" in
      ;;
   "configure_nic")
      configure_nic "${@:2}"
+     ;;
+  "run")
+     run "${@:2}"
      ;;
   "default_network_ip")
      default_network_ip
