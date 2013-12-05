@@ -89,5 +89,8 @@ Other useful commands
     $ bash -x vftool.bash stop_all 
 
     # resize vm's root partition to fill 200G image
-    # (assume partition layout derives from vftool.bash's kickstart)
+    #  - assume partition layout derives from vftool.bash's kickstart
+    #  - doesn't always work in which case you need to revert
+    #    by copying the backup $poolpath/${domname}old.qcow2 to
+    #    $poolpath/${domname}.qcow2 
     $ bash -x vftool.bash resize_image myvmname 200G
