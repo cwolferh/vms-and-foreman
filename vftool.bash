@@ -917,6 +917,9 @@ run() {
 }
 
 configure_nic() {
+  if [ $# -ne 5 ]; then
+     fatal "5 arguments expected for configure_nic"
+  fi
   domname=$1
   type=$2  # only "static" supported now
   iface=$3
