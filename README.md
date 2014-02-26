@@ -1,7 +1,7 @@
 vms-and-foreman
 ===============
 
-Build VM's from scratch on RHEL64, and install Foreman to manage them
+Build VM's from scratch on RHEL6, and install Foreman to manage them
 for openstack.
 
 Note: The *kick-first-vm subcommand* has a the caveat that
@@ -30,7 +30,9 @@ the first time, it is recommended to execute each step independently
     $ bash -x vftool.bash host_permissive
     $ bash -x vftool.bash libvirt_prep
 
-    $ bash -x vftool.bash default_network_ip  # change to 192.168.7
+    # The following command changes the default network to 192.168.7.0
+    $ bash -x vftool.bash default_network_ip
+
     $ bash -x vftool.bash create_foreman_networks
     $ bash -x vftool.bash vm_auth_keys
 
