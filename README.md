@@ -1,12 +1,17 @@
 vms-and-foreman
 ===============
 
-Build VM's from scratch on RHEL6, and install Foreman to manage them
-for openstack.
+**New!** If using EL7 as a bare-metal host, use the vftool.bash
+subcommands el7_host_depends and el7_host_permissive instead of
+host_depends and host_permissive.  To create an initial EL7 vm, use
+el7_kick_first_vm.  Besides that, other subcommands work for either
+EL6 or EL7 (though foreman itself should still run on EL6).
 
-Note: The *kick-first-vm subcommand* has a the caveat that
-*INSTALL_URL must be defined before the kick-first-vm subcommand is
-executed.
+Build VM's from scratch on EL6, and install Foreman to manage them for
+openstack.
+
+Note: The *kick-first-vm subcommand* has the caveat that INSTALLURL
+must be defined before the kick-first-vm subcommand is executed.
 
 If you are using this tool to setup foreman and VM's from scratch for
 the first time, it is recommended to execute each step independently
@@ -30,9 +35,7 @@ the first time, it is recommended to execute each step independently
     $ bash -x vftool.bash host_permissive
     $ bash -x vftool.bash libvirt_prep
 
-    # The following command changes the default network to 192.168.7.0
-    $ bash -x vftool.bash default_network_ip
-
+    $ bash -x vftool.bash default_network_ip  # change to 192.168.7
     $ bash -x vftool.bash create_foreman_networks
     $ bash -x vftool.bash vm_auth_keys
 

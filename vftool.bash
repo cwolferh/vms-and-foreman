@@ -23,7 +23,7 @@ fi
 # * create /vs convenience link to /mnt/vm-share
 # * move /mnt/vm-share creation to new funciton, host_prep
 # * write and use exit_if_not_running( $domname)
-# * 
+# *
 # networking
 # * maybe throw in a VMNETSET
 # * guest_update_network <vmname> <interface #> <network name>
@@ -102,9 +102,9 @@ destroy_if_running() {
      if [ $? -eq 255 ]; then
        echo "unable to ssh to host"
      else
-       wait_for 30 1 $check
+       wait_for 10 1 $check
        if [ $? -eq 0 ]; then
-         return  
+         return
        fi
      fi
      echo "so much for ssh, calling virsh shutdown $domname"
@@ -122,9 +122,12 @@ wait_for_port() {
 
   the_cmd="true"
   for vm in $VMSET; do
-    the_cmd="$the_cmd && nc -w1 -z $vm $port"
+    # sadly nc -z not available on rhel7
+    #the_cmd="$the_cmd && nc -w1 -z $vm $port"
+    #... so use this command that works on both el6 and el7
+    the_cmd="$the_cmd && \$(nmap -Pn -p$port $vm | grep -qs \"$port/.*open\" 2>/dev/null)"
   done
-  eval $the_cmd > /dev/null
+  eval $the_cmd >/dev/null 2>&1
   exit_status=$?
   while [[ $exit_status -ne 0 ]] ; do
     echo -n .
@@ -144,7 +147,14 @@ start_if_not_running() {
 host_depends(){
   install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git
   tigervnc-server tigervnc-server-module tigervnc xorg-x11-twm
-  xorg-x11-server-utils ntp emacs-nox python-virtinst virt-viewer nc"
+  xorg-x11-server-utils ntp emacs-nox python-virtinst virt-viewer nc
+  nmap"
+}
+
+el7_host_depends(){
+  install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git
+  tigervnc-server tigervnc-server-module tigervnc ntp emacs-nox
+  virt-viewer nc nmap virt-install"
 }
 
 host_permissive(){
@@ -152,8 +162,15 @@ host_permissive(){
   sudo sysctl -w net.ipv4.ip_forward=1
   sudo sed -i 's/net.ipv4.ip_forward = 0/net.ipv4.ip_forward = 1/g' /etc/sysctl.conf
   sudo setenforce 0
-  # TODO Fedora-ize, one adjustment of many:
-  # sudo firewall-cmd --add-service=nfs
+}
+
+el7_host_permissive(){
+  sudo /sbin/iptables --flush
+  sudo sysctl -w net.ipv4.ip_forward=1
+  # TODO append to /usr/lib/sysctl.d/00-system.conf only if not present
+  echo 'net.ipv4.ip_forward = 1' >> /usr/lib/sysctl.d/00-system.conf
+  sudo setenforce 0
+  firewall-cmd --add-service=nfs
 }
 
 libvirt_prep(){
@@ -262,6 +279,7 @@ emacs-nox
 emacs-common
 screen
 nc
+nmap
 %end
 
 reboot
@@ -273,7 +291,7 @@ auth  --useshadow  --passalgo=sha512
 graphical
 keyboard us
 lang en_US
-selinux --disabled
+selinux --permissive
 skipx
 logging --level=info
 timezone  America/Los_Angeles
@@ -314,7 +332,7 @@ sudo virt-install --connect=qemu:///system \
     --network network:openstackvms2_1 \
     --network network:openstackvms2_2 \
     --initrd-inject=/tmp/$domname.ks \
-    --extra-args="ks=file:/$domname.ks ksdevice=eth0 noipv6 ip=dhcp keymap=us lang=en_US" \
+    --extra-args="ks=file:/$domname.ks ksdevice=eth0 noipv6 ip=dhcp keymap=us lang=en_US console=tty0 console=ttyS0,115200" \
     --name=$domname \
     --location=$INSTALLURL \
     --disk $image,format=qcow2 \
@@ -329,6 +347,101 @@ echo "view the install (if you want) with:"
 echo "   virt-viewer --connect qemu+ssh://root@`hostname`/system $domname"
 }
 
+el7_kick_first_vm(){
+
+[[ -z $INSTALLURL ]] && fatal "INSTALLURL Is not defined"
+
+domname=$initimage
+image=$poolpath/$domname.qcow2
+test -f $image && fatal "image $image already exists"
+sudo /usr/bin/qemu-img create -f qcow2 -o preallocation=metadata $image 9G
+
+cat >/tmp/$domname.ks <<EOD
+%packages
+@core
+kernel
+nfs-utils
+emacs-nox
+emacs-common
+screen
+nmap
+nmap-ncat
+tmux
+net-tools
+ntp
+ntpdate
+autogen-libopts
+wget
+%end
+
+reboot
+firewall --disabled
+install
+url --url="$INSTALLURL"
+rootpw --plaintext weakpw
+auth  --useshadow  --passalgo=sha512
+graphical
+keyboard us
+lang en_US
+selinux --permissive
+skipx
+logging --level=info
+timezone  America/Los_Angeles
+bootloader --location=mbr --driveorder=vda,sda,hda --append="console=tty0 console=ttyS0,115200 rd_NO_PLYMOUTH"
+clearpart --all
+part /boot --fstype ext4 --size=400
+part swap --size=100
+part pv.01 --size=8000
+volgroup lv_admin --pesize=32768 pv.01
+logvol / --fstype ext4 --name=lv_root --vgname=lv_admin --size=7000 --grow
+zerombr
+network --bootproto=dhcp --noipv6 --device=eth0
+
+%post
+
+mkdir -p /mnt/vm-share
+mount $default_ip_prefix.1:/mnt/vm-share /mnt/vm-share
+if [ ! -d /root/.ssh ]; then
+  mkdir -p /root/.ssh
+  chmod 700 /root/.ssh
+fi
+if [ -f /mnt/vm-share/authorized_keys ]; then
+  cp /mnt/vm-share/authorized_keys /root/.ssh/authorized_keys
+  chmod 0600 /root/.ssh/authorized_keys
+fi
+# TODO script register to RHN
+
+%end
+
+EOD
+
+sudo virt-install --connect=qemu:///system \
+    --network network:default \
+    --network network:foreman1 \
+    --network network:openstackvms1_1 \
+    --network network:openstackvms1_2 \
+    --network network:foreman2 \
+    --network network:openstackvms2_1 \
+    --network network:openstackvms2_2 \
+    --initrd-inject=/tmp/$domname.ks \
+    --extra-args="ks=file:/$domname.ks ks.device=eth0 console=tty0 console=ttyS0,115200 repo=$INSTALLURL" \
+    --name=$domname \
+    --location=$INSTALLURL \
+    --disk $image,format=qcow2,bus=virtio \
+    --ram 7000 \
+    --vcpus 3 \
+    --cpu host \
+    --hvm \
+    --os-type linux \
+    --os-variant rhel7 \
+    --graphics vnc
+
+
+echo "view the install (if you want) with:"
+echo "   virt-viewer --connect qemu+ssh://root@`hostname`/system $domname"
+}
+
+
 # create images to test foreman provisioning
 # first image has 2 nic's: default + foreman1
 # 2nd and 3rd images have 3 nic's: foreman1 + openstackvms1_1 + openstackvms1_2
@@ -339,7 +452,7 @@ echo "   virt-viewer --connect qemu+ssh://root@`hostname`/system $domname"
 create_images() {
   ATTEMPTS=60
   FAILED=0
-  while $(sudo virsh list | grep -q "$initimage") ; do
+  while $(sudo virsh list | grep -qP "\b$initimage\b") ; do
     FAILED=$(expr $FAILED + 1)
     echo "waiting for $initimage to stop. $FAILED"
     if [ $FAILED -ge $ATTEMPTS ]; then
@@ -358,10 +471,10 @@ clone_image() {
   src_domname=$1
   dest_domname=$2
 
-  if $(sudo virsh list | grep -q "$src_domname") ; then
+  if $(sudo virsh list | grep -qP "\b$src_domname\b") ; then
     fatal "clone_image() $src_domname must not be stopped to clone it."
   fi
-  if $(sudo virsh list | grep -q "$dest_domname") ; then
+  if $(sudo virsh list | grep -qP "\b$dest_domname\b") ; then
     fatal "clone_image() $dest_domname must not be stopped to clone it."
   fi
 
@@ -386,7 +499,7 @@ clone_image() {
 
 prep_images() {
   for domname in $vmset; do
-    if sudo virsh list | grep -q $domname; then
+    if sudo virsh list | grep -qP "\b$domname\b"; then
       fatal "prep_images()  $domname must not be stopped to continue"
     fi
     mntpnt=/mnt/$domname
@@ -394,23 +507,29 @@ prep_images() {
     sudo mkdir -p $mntpnt
     # when the host boots up, write a "we're here" file to /mnt/vm-share
     sudo guestmount -a $poolpath/$domname.qcow2 -i $mntpnt
+    is_el6=$(grep -q 'release 6' $mntpnt/etc/redhat-release && echo true || echo false)
     echo '#!/bin/bash
 mount /mnt/vm-share' > /tmp/$domname.rc.local
     echo 'echo `ifconfig eth0 | grep "inet " | perl -p -e "s/.*inet .*?(\d\S+\d).*\\\$/\\\$1/"`' " $domname.example.com $domname> /mnt/vm-share/$domname.hello" >> /tmp/$domname.rc.local
-    echo '/etc/init.d/ntpd stop; ntpdate clock.redhat.com; /etc/init.d/ntpd start;' >> /tmp/$domname.rc.local
+    echo '/sbin/service ntpd stop; ntpdate clock.redhat.com; /sbin/service ntpd start;' >> /tmp/$domname.rc.local
     sudo cp /tmp/$domname.rc.local $mntpnt/etc/rc.d/rc.local
     sudo chmod ugo+x $mntpnt/etc/rc.d/rc.local
-    # disable selinux if the kickstart did not
-    sudo sh -c "echo 'SELINUX=disabled' > $mntpnt/etc/selinux/config"
+    # sudo sh -c "echo 'SELINUX=disabled' > $mntpnt/etc/selinux/config"
     sudo sh -c "echo 'NETWORKING=yes
 HOSTNAME=$domname.example.com' > $mntpnt/etc/sysconfig/network"
     # always mount /mnt/vm-share
     if ! sudo cat $mntpnt/etc/fstab | grep -q vm-share; then
       sudo sh -c "echo '$default_ip_prefix.1:/mnt/vm-share /mnt/vm-share nfs defaults 0 0' >> $mntpnt/etc/fstab"
     fi
-    # noapic, no ipv6
-    if ! sudo cat $mntpnt/boot/grub/grub.conf | grep -q 'kernel.*ipv6.disable'; then
-      sudo sh -c "perl -p -i -e 's/^(\s*kernel\s+.*)\$/\$1 noapic ipv6.disable=1/' $mntpnt/boot/grub/grub.conf"
+    if [ "$is_el6" = "true" ]; then
+      # noapic, no ipv6
+      if ! sudo cat $mntpnt/boot/grub/grub.conf | grep -q 'kernel.*ipv6.disable'; then
+        sudo sh -c "perl -p -i -e 's/^(\s*kernel\s+.*)\$/\$1 noapic ipv6.disable=1/' $mntpnt/boot/grub/grub.conf"
+      fi
+    else
+      if ! sudo cat $mntpnt/boot/grub2/grub.cfg | grep -q 'crashkernel=auto.*ipv6.disable'; then
+        sudo sh -c "perl -p -i -e 's/^(.*crashkernel=auto\s+.*)\$/\$1 noapic ipv6.disable=1/' $mntpnt/boot/grub2/grub.cfg"
+      fi
     fi
     # ssh keys
     sudo sh -c "mkdir -p $mntpnt/root/.ssh; chmod 700 $mntpnt/root/.ssh; cp /mnt/vm-share/authorized_keys $mntpnt/root/.ssh/authorized_keys; chmod 0600 $mntpnt/root/.ssh/authorized_keys"
@@ -420,9 +539,9 @@ HOSTNAME=$domname.example.com' > $mntpnt/etc/sysconfig/network"
 }
 
 first_snaps() {
-  # take initial snapshots
+  # take initial snapshotso
   for domname in $vmset; do
-    if sudo virsh list | grep -q $domname; then
+    if sudo virsh list | grep -qP "\b$domname\b"; then
       fatal "first_snaps()  $domname must not be stopped to continue"
     fi
     sudo qemu-img snapshot -c initial_snap $poolpath/$domname.qcow2
@@ -449,7 +568,7 @@ resize_image() {
     echo " e.g.: vftool.bash resize_image myvmname 200G"
     echo "note that new image will still be sparse."
     exit 1
-  fi 
+  fi
 
   domname=$1
   newdisksize=$2
@@ -468,8 +587,8 @@ resize_image() {
 
   echo "Just FYI, this is what we are working with:"
   sudo virt-filesystems --long -h --all -a $imgnameold
-  
-  sudo qemu-img create -f qcow2 -o preallocation=metadata $imgname $newdisksize  
+
+  sudo qemu-img create -f qcow2 -o preallocation=metadata $imgname $newdisksize
   sudo virt-resize --expand $partition --LV-expand $lv $imgnameold $imgname
 
   echo "Cowardly refusing to clean up the old image.  You'll probably want to:"
@@ -509,7 +628,7 @@ populate_etc_hosts() {
   vmset="$vmset"
   for domname in \$vmset; do
     hosts_line=\$(cat /mnt/vm-share/\$domname.hello)
-    if \$(grep -qs \$domname /etc/hosts) ;then
+    if \$(grep -qsP "\b\$domname\b" /etc/hosts) ;then
       perl -p -i -e "s|.*\b\$domname\b.*\$|\$hosts_line|" /etc/hosts
     else
       sh -c "cat /mnt/vm-share/\$domname.hello >> /etc/hosts"
@@ -533,9 +652,14 @@ populate_default_dns() {
 
   sudo virsh net-dumpxml default > /tmp/default-network.xml
   for sshhost in $vmset; do
-    macaddr=$(sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $sshhost "ifconfig eth0 | grep eth0 | perl -p -e 's/^.*HWaddr\s(\S+)\s*\$/\$1/'" )
+    is_el6=$(sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $sshhost "grep -q 'release 6' /etc/redhat-release && echo true || echo false")
+    if [ "$is_el6" = "true" ]; then
+      macaddr=$(sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $sshhost "ifconfig eth0 | grep eth0 | perl -p -e 's/^.*HWaddr\s(\S+)\s*\$/\$1/'" )
+    else
+      macaddr=$(sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $sshhost "ifconfig eth0 | grep ether | perl -p -e 's/^.*ether\s+(\S+)\s+.*Ether.*\$/\$1/'" )
+    fi
     if [ "x$macaddr" = "x" ]; then
-       fatal "Failed to get \$macaddr for $sshhost.  (next step is probably to determine why the host did not end up in /etc/hosts which is usually because /mnt/vm-share/$sshhost.hello did not get written due to an nfs issue)" 
+       fatal "Failed to get \$macaddr for $sshhost.  (next step is probably to determine why the host did not end up in /etc/hosts which is usually because /mnt/vm-share/$sshhost.hello did not get written due to an nfs issue)"
     fi
     ipaddr=$(grep "$sshhost.example.com" /etc/hosts | perl -p -i -e 's/^(\S+)\s+.*$/$1/')
     if [ "x$ipaddr" = "x" ]; then
@@ -545,25 +669,16 @@ populate_default_dns() {
       fatal "$sshhost already exists in /tmp/default-network.xml, you may need to update your the default network manually"
     fi
     dhcp_entry="<host mac=\"$macaddr\" name=\"$sshhost.example.com\" ip=\"$ipaddr\" />"
-    sudo sed -i "s#</dhcp>#$(echo $dhcp_entry)\n</dhcp>#" /tmp/default-network.xml
+    #sudo sed -i "s#</dhcp>#$(echo $dhcp_entry)\n</dhcp>#" /tmp/default-network.xml
+    sudo virsh net-update --config --live default add ip-dhcp-host "$dhcp_entry"
   done
-  sudo virsh net-destroy default
-  sudo virsh net-undefine default
-  sudo virsh net-define /tmp/default-network.xml
-  sudo virsh net-start default
-  sudo virsh net-autostart default
-  
-  stop_guests
-  sudo /etc/init.d/libvirtd restart
-  sudo virsh net-start default
-  start_guests
 }
 
 remove_dns_entry() {
   domname=$1
   network_name=default
   fname=/tmp/default-${network_name}.xml
-  sudo virsh net-dumpxml $network_name > $fname 
+  sudo virsh net-dumpxml $network_name > $fname
   echo "name=[\"']$domname\\."
   if ! $(grep -q -P "name=[\"']$domname\\." $fname); then
     echo 'virt dns entry not present'
@@ -594,8 +709,8 @@ install_foreman() {
   # this command.  Hint:
   #   subscription-manager register
   # Find the right poolID to attach using line below
-  #   subscription-manager list --available 
-  #   subscription-manager attach --pool=XXXXXX 
+  #   subscription-manager list --available
+  #   subscription-manager attach --pool=XXXXXX
   #   yum-config-manager --disable rhel-server-ost-6-preview-rpms
   #   yum-config-manager --disable rhel-server-ost-6-folsom-rpms
   #   yum-config-manager --enable rhel-server-ost-6-3-rpms
@@ -648,7 +763,7 @@ install_foreman_here() {
       save
 EOA
     ifup eth1
-    
+
     INSTALLURL=${INSTALLURL:='http://yourrhel6mirror.com/somepath/os/x86_64'}
     ESCAPEDINSTALLURL=$(echo $INSTALLURL | perl -p -e 's/\//\\\//g')
     perl -p -i -e "s/^m\.path=.*\$/m\.path=\"$ESCAPEDINSTALLURL\"/" \
@@ -663,7 +778,7 @@ foreman_provisioned_vm() {
   # TODO
   # autopick a macaddr
   # create the host in foreman using api
-  
+
   domname=$1
   image=$poolpath/$domname.qcow2
   sudo /usr/bin/qemu-img create -f qcow2 -o preallocation=metadata $image 9G
@@ -830,7 +945,7 @@ EONTP
   sudo chkconfig ntpd on
   sudo service ntpd restart
   for domname in $vmset; do
-    if ! sudo virsh list | grep -q $domname; then
+    if ! sudo virsh list | grep -qP "\b$domname\b"; then
       warn "$domname is not running"
     else
       sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname 'yum -y install ntp; cp /mnt/vm-share/ntp.conf /etc/ntp.conf; chkconfig ntpd on; service ntpd restart'
@@ -842,7 +957,7 @@ install_auth_keys() {
   # this is typically handled in the post of the kicstart,
   # so this function only exists for convenience
   for domname in $vmset; do
-    if ! sudo virsh --quiet list | grep -q $domname; then
+    if ! sudo virsh --quiet list | grep -qP "\b$domname\b"; then
       fatal "$domname is not running"
     fi
     sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname 'mkdir -p /root/.ssh; chmod 700 /root/.ssh; cp /mnt/vm-share/authorized_keys /root/.ssh/authorized_keys; chmod 0600 /root/.ssh/authorized_keys'
@@ -855,7 +970,7 @@ registerguests() {
 
   for i in $domsuffixes; do
     domname=$domprefix$i
-    if ! sudo virsh list | grep -q $domname; then
+    if ! sudo virsh list | grep -qP "\b$domname\b"; then
       warn "$domname is not running, skipping"
     else
       sudo ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname "bash -x /mnt/vm-share/foreman_client.sh"
@@ -982,8 +1097,14 @@ case "$1" in
   "host_depends")
      host_depends
      ;;
+  "el7_host_depends")
+     el7_host_depends
+     ;;
   "host_permissive")
      host_permissive
+     ;;
+  "el7_host_permissive")
+     el7_host_permissive
      ;;
   "libvirt_prep")
      libvirt_prep
@@ -996,6 +1117,9 @@ case "$1" in
      ;;
   "kick_first_vm")
      kick_first_vm
+     ;;
+  "el7_kick_first_vm")
+     el7_kick_first_vm
      ;;
   "create_images")
      create_images
