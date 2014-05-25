@@ -34,6 +34,15 @@ fi
 # * change the names of default created networks
 #     3 nat with no dhcp named nodhcpN
 #     3 closed named closedN
+os=unsupported
+grep -Eqs 'Red Hat Enterprise Linux Server release 6|CentOS release 6' /etc/redhat-release && os=el6 osfamily=el
+grep -Eqs 'Red Hat Enterprise Linux Server release 7|CentOS release 7' /etc/redhat-release && os=el7 osfamily=el
+grep -qs -P 'Fedora release 20' /etc/fedora-release && os=f20 osfamily=fedora
+if [ "$os" = "unsupported" ]; then
+  echo 'vftool.bash has not been tested out of enterprise linux 6, 7 or Fedora 20'
+  echo 'Patches welcome :-)'
+  exit 1
+fi
 
 usage(){
     echo "Usage: See the README.md :-)"
@@ -144,7 +153,7 @@ start_if_not_running() {
    fi
 }
 
-host_depends(){
+el6_host_depends(){
   install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git
   tigervnc-server tigervnc-server-module tigervnc xorg-x11-twm
   xorg-x11-server-utils ntp emacs-nox python-virtinst virt-viewer nc
@@ -154,10 +163,18 @@ host_depends(){
 el7_host_depends(){
   install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git
   tigervnc-server tigervnc-server-module tigervnc ntp emacs-nox
-  virt-viewer nc nmap virt-install"
+  virt-viewer nc nmap virt-install wget"
 }
 
-host_permissive(){
+host_depends(){
+  if [ "$os" = "el6" ]; then
+    el6_host_depends
+  else
+    el7_host_depends
+  fi
+}
+
+el6_host_permissive(){
   sudo /sbin/iptables --flush
   sudo sysctl -w net.ipv4.ip_forward=1
   sudo sed -i 's/net.ipv4.ip_forward = 0/net.ipv4.ip_forward = 1/g' /etc/sysctl.conf
@@ -171,6 +188,14 @@ el7_host_permissive(){
   echo 'net.ipv4.ip_forward = 1' >> /usr/lib/sysctl.d/00-system.conf
   sudo setenforce 0
   firewall-cmd --add-service=nfs
+}
+
+host_permissive(){
+  if [ "$os" = "el6" ]; then
+    el6_host_permissive
+  else
+    el7_host_permissive
+  fi
 }
 
 libvirt_prep(){
@@ -517,9 +542,11 @@ mount /mnt/vm-share' > /tmp/$domname.rc.local
     # sudo sh -c "echo 'SELINUX=disabled' > $mntpnt/etc/selinux/config"
     sudo sh -c "echo 'NETWORKING=yes
 HOSTNAME=$domname.example.com' > $mntpnt/etc/sysconfig/network"
+    # this is really just a rhel7 thing (won't hurt rhel7 though)
+    sudo sh -c "echo $domname.example.com > $mntpnt/etc/hostname"
     # always mount /mnt/vm-share
     if ! sudo cat $mntpnt/etc/fstab | grep -q vm-share; then
-      sudo sh -c "echo '$default_ip_prefix.1:/mnt/vm-share /mnt/vm-share nfs defaults 0 0' >> $mntpnt/etc/fstab"
+      sudo sh -c "echo '$default_ip_prefix.1:/mnt/vm-share /mnt/vm-share nfs lookupcache=none,v3,rw,hard,intr,rsize=32768,wsize=32768,sync 0 0' >> $mntpnt/etc/fstab"
     fi
     if [ "$is_el6" = "true" ]; then
       # noapic, no ipv6
@@ -840,17 +867,6 @@ EOY
 
 }
 
-installoldrubydeps() {
-  # using rhel6 system ruby
-  install_pkgs "yum-utils yum-rhn-plugin"
-  sudo rpm -Uvh http://download.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm
-  sudo yum-config-manager --enable rhel-6-server-optional-rpms
-  sudo yum -y install https://yum.puppetlabs.com/el/6/products/x86_64/puppetlabs-release-6-7.noarch.rpm
-  sudo yum clean all
-  install_pkgs "augeas puppet git policycoreutils-python facter"
-  sudo gem install highline
-}
-
 installmsysql() {
 
   modulepath=/etc/puppet/modules/production
@@ -877,41 +893,6 @@ EOM
 
   sudo puppet apply --debug --verbose --modulepath=$modulepath /tmp/mysql-db.pp
   chkconfig mysqld on  || fatal "Could not 'chkconfig mysqld on'"
-}
-
-foreman-with-mysql() {
-  sudo /sbin/service foreman stop
-  sudo /sbin/service foreman-proxy stop
-  sudo /sbin/service httpd stop
-
-  install_pkgs "rubygem-mysql foreman-mysql foreman-console"
-  # foreman was installed with sqlite, now point to mysql
-  if [ ! -e /usr/share/foreman/config/database.yml.sqlite.SAV ]; then
-    sudo mv /usr/share/foreman/config/database.yml /usr/share/foreman/config/database.yml.sqlite.SAV
-  fi
-
-  cat >/usr/share/foreman/config/database.yml <<EOD
-production:
-adapter: mysql
-database: foreman
-host: localhost
-username: foreman
-password: foreman
-socket: "/var/lib/mysql/mysql.sock"
-encoding: utf8
-timeout: 5000
-EOD
-
-  # TODO verify we need this
-  cp /usr/lib/ruby/site_ruby/1.8/puppet/reports/foreman.rb /usr/lib/ruby/site_ruby/1.8/puppet/reports/foreman-report.rb || fatal "Could not copy foreman.rb into target directory"
-  exit 0
-  RAILS_ENV=production rake db:migrate
-  RAILS_ENV=production rake puppet:import:hosts_and_facts
-
-  sudo /sbin/service foreman start
-  sudo /sbin/service foreman-proxy start
-  sudo /sbin/service httpd start
-
 }
 
 append_user_auth_keys() {
@@ -1042,6 +1023,8 @@ configure_nic() {
   netmask=$5
 
   mkdir -p /mnt/vm-share/tmp/nic
+
+  # EL6
   cat >/mnt/vm-share/tmp/nic/$domname-$iface.aug <<EOA
       set /files/etc/sysconfig/network-scripts/ifcfg-$iface/BOOTPROTO none
       set /files/etc/sysconfig/network-scripts/ifcfg-$iface/IPADDR    $ipaddr
@@ -1051,8 +1034,19 @@ configure_nic() {
       save
 EOA
 
+  # EL7
+  cat >/mnt/vm-share/tmp/nic/$domname-$iface.cfg <<EOC
+TYPE=Ethernet
+DEVICE=$iface
+BOOTPROTO=none
+ONBOOT=yes
+NETMASK=$netmask
+IPADDR=$ipaddr
+USERCTL=no
+EOC
+
   ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" root@$domname \
-    "augtool -f /mnt/vm-share/tmp/nic/$domname-$iface.aug; /sbin/ifup $iface"
+    "grep -qs 'release 6' /etc/redhat-release && augtool -f /mnt/vm-share/tmp/nic/$domname-$iface.aug; grep -qs 'release 7' /etc/redhat-release && cp /mnt/vm-share/tmp/nic/$domname-$iface.cfg /etc/sysconfig/network-scripts/ifcfg-$iface; /sbin/ifup $iface"
 }
 
 # todo maybe not destroy default network given an option
