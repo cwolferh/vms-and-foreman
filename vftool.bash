@@ -163,7 +163,7 @@ el6_host_depends(){
 el7_host_depends(){
   install_pkgs "nfs-utils libguestfs-tools libvirt virt-manager git
   tigervnc-server tigervnc-server-module tigervnc ntp emacs-nox
-  virt-viewer nc nmap virt-install wget"
+  virt-viewer nmap-ncat nmap virt-install wget"
 }
 
 host_depends(){
