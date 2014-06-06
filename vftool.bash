@@ -420,7 +420,7 @@ part pv.01 --size=8000
 volgroup lv_admin --pesize=32768 pv.01
 logvol / --fstype ext4 --name=lv_root --vgname=lv_admin --size=7000 --grow
 zerombr
-network --bootproto=dhcp --noipv6 --device=eth0
+network --bootproto=dhcp --device=eth0
 
 %post
 
@@ -553,10 +553,10 @@ HOSTNAME=$domname.example.com' > $mntpnt/etc/sysconfig/network"
       if ! sudo cat $mntpnt/boot/grub/grub.conf | grep -q 'kernel.*ipv6.disable'; then
         sudo sh -c "perl -p -i -e 's/^(\s*kernel\s+.*)\$/\$1 noapic ipv6.disable=1/' $mntpnt/boot/grub/grub.conf"
       fi
-    else
-      if ! sudo cat $mntpnt/boot/grub2/grub.cfg | grep -q 'crashkernel=auto.*ipv6.disable'; then
-        sudo sh -c "perl -p -i -e 's/^(.*crashkernel=auto\s+.*)\$/\$1 noapic ipv6.disable=1/' $mntpnt/boot/grub2/grub.cfg"
-      fi
+    #else
+      #if ! sudo cat $mntpnt/boot/grub2/grub.cfg | grep -q 'crashkernel=auto.*ipv6.disable'; then
+      #  sudo sh -c "perl -p -i -e 's/^(.*crashkernel=auto\s+.*)\$/\$1 noapic ipv6.disable=1/' $mntpnt/boot/grub2/grub.cfg"
+      #fi
     fi
     # ssh keys
     sudo sh -c "mkdir -p $mntpnt/root/.ssh; chmod 700 $mntpnt/root/.ssh; cp /mnt/vm-share/authorized_keys $mntpnt/root/.ssh/authorized_keys; chmod 0600 $mntpnt/root/.ssh/authorized_keys"
