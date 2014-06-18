@@ -1024,6 +1024,9 @@ configure_nic() {
 
   mkdir -p /mnt/vm-share/tmp/nic
 
+  netdevicename=$(echo $iface | perl -p -e 's/eth/net/')
+  macaddr=$(virsh dumpxml $domname | grep -B 4 -A 2 "alias name=.$netdevicename" | grep 'mac address' | perl -p -e 's/^.*address=.(.................).*$/$1/')
+
   # EL6
   cat >/mnt/vm-share/tmp/nic/$domname-$iface.aug <<EOA
       set /files/etc/sysconfig/network-scripts/ifcfg-$iface/BOOTPROTO none
@@ -1043,6 +1046,7 @@ ONBOOT=yes
 NETMASK=$netmask
 IPADDR=$ipaddr
 USERCTL=no
+MACADDR=$macaddr
 EOC
 
   ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" root@$domname \
