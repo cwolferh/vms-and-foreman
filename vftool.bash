@@ -1007,7 +1007,7 @@ run() {
     exit 1
   fi
   for domname in $vmset; do
-    ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" root@$domname $@
+    ssh -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" root@$domname "$@"
   done
 
 }
