@@ -366,7 +366,8 @@ sudo virt-install --connect=qemu:///system \
     --cpu host \
     --hvm \
     --os-variant rhel6 \
-    --vnc
+    --vnc \
+    --noautoconsole
 
 echo "view the install (if you want) with:"
 echo "   virt-viewer --connect qemu+ssh://root@`hostname`/system $domname"
@@ -459,8 +460,8 @@ sudo virt-install --connect=qemu:///system \
     --hvm \
     --os-type linux \
     --os-variant rhel7 \
-    --graphics vnc
-
+    --graphics vnc \
+    --noautoconsole
 
 echo "view the install (if you want) with:"
 echo "   virt-viewer --connect qemu+ssh://root@`hostname`/system $domname"
