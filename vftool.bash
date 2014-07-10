@@ -535,7 +535,13 @@ prep_images() {
     sudo guestmount -a $poolpath/$domname.qcow2 -i $mntpnt
     is_el6=$(grep -q 'release 6' $mntpnt/etc/redhat-release && echo true || echo false)
     echo '#!/bin/bash
-mount /mnt/vm-share' > /tmp/$domname.rc.local
+mount /mnt/vm-share
+i=0
+while [ $i -lt 20 ] ; do
+  i=$((i + 1))
+  eval "mount | grep -q vm-share" && i=20 || sleep 3
+done
+' > /tmp/$domname.rc.local
     echo 'echo `ifconfig eth0 | grep "inet " | perl -p -e "s/.*inet .*?(\d\S+\d).*\\\$/\\\$1/"`' " $domname.example.com $domname> /mnt/vm-share/$domname.hello" >> /tmp/$domname.rc.local
     echo '/sbin/service ntpd stop; ntpdate clock.redhat.com; /sbin/service ntpd start;' >> /tmp/$domname.rc.local
     sudo cp /tmp/$domname.rc.local $mntpnt/etc/rc.d/rc.local
