@@ -146,6 +146,24 @@ wait_for_port() {
   done
 }
 
+wait_for_status() {
+  # probably 'running' or 'shut off'
+  status=$1
+
+  the_cmd="true"
+  for vm in $VMSET; do
+    the_cmd="$the_cmd && \$(virsh list --all | grep -qPs \"\b$vm\b.*$status\" 2>/dev/null)"
+  done
+  eval $the_cmd >/dev/null 2>&1
+  exit_status=$?
+  while [[ $exit_status -ne 0 ]] ; do
+    echo -n .
+    sleep 6
+    eval $the_cmd > /dev/null
+    exit_status=$?
+  done
+}
+
 start_if_not_running() {
    domname=$1
    if ! $(sudo virsh domstate $domname | grep -q 'running'); then
@@ -583,15 +601,15 @@ first_snaps() {
 }
 
 start_guests() {
-  if [ $# -eq 0 ]; then
-    for domname in $vmset; do
-      start_if_not_running $domname
-    done
-  else
-    for domname in $@; do
-      start_if_not_running $domname
-    done
+  if [ $# -ne 0 ]; then
+    vmset="$@"
   fi
+  for domname in $vmset; do
+    start_if_not_running $domname &
+  done
+  wait
+  VMSET=$vmset wait_for_port 22
+
 }
 
 resize_image() {
@@ -727,15 +745,14 @@ remove_dns_entry() {
 }
 
 stop_guests() {
-  if [ $# -eq 0 ]; then
-    for domname in $vmset; do
-      destroy_if_running $domname
-    done
-  else
-    for domname in $@; do
-      destroy_if_running $domname
-    done
+  if [ $# -ne 0 ]; then
+    vmset="$@"
   fi
+  for domname in $vmset; do
+    destroy_if_running $domname &
+  done
+  wait
+  VMSET=$vmset wait_for_status 'shut off'
 }
 
 install_foreman() {
@@ -967,6 +984,16 @@ registerguests() {
   done
 }
 
+rebootsnaphelper_singlenode() {
+  flag=$1
+  snapname=$2
+  domname=$3
+  destroy_if_running $domname
+  sudo qemu-img snapshot $flag $snapname $poolpath/$domname.qcow2
+  sudo virsh start $domname
+
+}
+
 rebootsnaphelper() {
   flag=$1
   shift
@@ -978,10 +1005,10 @@ rebootsnaphelper() {
       SNAPNAME=snap_$(date +%Y%m%d_%H%M%S)
   fi
   for domname in $@; do
-    destroy_if_running $domname
-    sudo qemu-img snapshot $flag $SNAPNAME $poolpath/$domname.qcow2
-    sudo virsh start $domname
+    rebootsnaphelper_singlenode $flag $SNAPNAME $domname &
   done
+  wait
+  VMSET="$@" wait_for_port 22
 }
 
 reboot_snap_revert() {
@@ -1014,9 +1041,9 @@ run() {
     exit 1
   fi
   for domname in $vmset; do
-    ssh -t -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" root@$domname "$@"
+    ssh -t -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" root@$domname "$@"&
   done
-
+  wait
 }
 
 configure_nic() {
@@ -1192,6 +1219,9 @@ case "$1" in
      ;;
   "wait_for_port")
      wait_for_port "${@:2}"
+     ;;
+  "wait_for_status")
+     wait_for_status "${@:2}"
      ;;
   "configure_nic")
      configure_nic "${@:2}"
