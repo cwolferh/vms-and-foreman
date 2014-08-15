@@ -608,7 +608,7 @@ start_guests() {
     start_if_not_running $domname &
   done
   wait
-  VMSET=$vmset wait_for_port 22
+  VMSET=$vmset wait_for_status running
 
 }
 
