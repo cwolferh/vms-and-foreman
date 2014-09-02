@@ -12,6 +12,12 @@ else
   vmset=$VMSET
 fi
 
+if [ "x$V_CPUS" = "x" ]; then
+  vcpus=3
+else
+  vcpus=$V_CPUS
+fi
+
 if [ "x$INITIMAGE" = "x" ]; then
   initimage=$(echo $vmset | perl -p -e 's/^(\S+)\s?.*$/$1/')
 else
@@ -380,7 +386,7 @@ sudo virt-install --connect=qemu:///system \
     --location=$INSTALLURL \
     --disk $image,format=qcow2 \
     --ram 7000 \
-    --vcpus 3 \
+    --vcpus $vcpus \
     --cpu host \
     --hvm \
     --os-variant rhel6 \
@@ -416,6 +422,7 @@ ntp
 ntpdate
 autogen-libopts
 wget
+rsync
 %end
 
 reboot
