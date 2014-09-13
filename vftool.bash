@@ -779,7 +779,7 @@ install_foreman() {
     cp vftool.bash  /mnt/vm-share/vftool
   fi
   [[ -z $INSTALLURL ]] || setinstallurl="INSTALLURL=$INSTALLURL"
-  sudo ssh -t -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname "$setinstallurl bash -x /mnt/vm-share/vftool/vftool.bash install_foreman_here $foreman_provisioning >/tmp/$domname-foreman-install.log 2>&1"
+  sudo ssh -t -t -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $domname "$setinstallurl bash -x /mnt/vm-share/vftool/vftool.bash install_foreman_here $foreman_provisioning >/tmp/$domname-foreman-install.log 2>&1"
 }
 
 install_foreman_here() {
@@ -829,6 +829,38 @@ EOA
   fi
   cd $INSTALLER_DIR
   yes | bash -x ./foreman_server.sh
+}
+
+get_logs() {
+  if [ $# -ne 0 ]; then
+    destdir=$1
+    if [ ! -d $destdir ]; then
+      mkdir $destdir
+    fi
+  else
+    destdir='/mnt/vm-share/logs/latest'
+  fi
+  for vm in $VMSET; do
+    sudo ssh -t -t -o "UserKnownHostsFile /dev/null" -o "StrictHostKeyChecking no" $vm "/mnt/vm-share/vftool/vftool.bash copy_logs_from_here $destdir"
+  done
+}
+
+copy_log_or_warn() {
+  src=$1
+  dest=$2
+  if [ -f $dest ]; then
+    echo "NOT OVERWRITING $dest"
+    return 1
+  else
+    cp --no-clobber $src $dest
+  fi
+}
+
+copy_logs_from_here() {
+  destdir=$1
+
+  copy_log_or_warn /var/log/messages $destdir/$(hostname -s).messages
+  copy_log_or_warn /var/log/mariadb/mariadb.log $destdir/$(hostname -s).mariadb.log
 }
 
 foreman_provisioned_vm() {
@@ -1247,6 +1279,12 @@ case "$1" in
      ;;
   "delete_all_vms")
      delete_all_vms
+     ;;
+  "copy_logs_from_here")
+     copy_logs_from_here "${@:2}"
+     ;;
+  "get_logs")
+     get_logs "${@:2}"
      ;;
   "resize_image")
      resize_image "${@:2}"

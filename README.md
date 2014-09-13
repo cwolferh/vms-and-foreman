@@ -99,3 +99,6 @@ Other useful commands
     #    by copying the backup $poolpath/${domname}old.qcow2 to
     #    $poolpath/${domname}.qcow2 
     $ bash -x vftool.bash resize_image myvmname 200G
+
+    # get logs from vm's
+    $ VMSET='vm1 vm2 vm3' bash -x vftool.bash get_logs /mnt/vm-share/tmp/logs
