@@ -811,6 +811,10 @@ install_foreman_here() {
 
   # intended to be run as root directly on vm
   install_pkgs "openstack-foreman-installer augeas"
+  # install rubygem-foreman_api with modern foreman
+  if $(rpm -q --queryformat "%{RPMTAG_VERSION}" foreman | grep -qP '^(2|1.[6789])') ; then
+    install_pkgs "rubygem-foreman_api"
+  fi
   if [ "x$FOREMAN_PROVISIONING" = "xtrue" ]; then
     augtool <<EOA
       set /files/etc/sysconfig/network-scripts/ifcfg-eth1/BOOTPROTO none
@@ -827,8 +831,17 @@ EOA
     perl -p -i -e "s/^m\.path=.*\$/m\.path=\"$ESCAPEDINSTALLURL\"/" \
       /usr/share/openstack-foreman-installer/bin/seeds.rb
   fi
+  export SEED_ADMIN_PASSWORD=changeme
   cd $INSTALLER_DIR
+  # not sure why these didn't set admin password to changeme......
+  #perl -p -i -e 's/rake db:seed/rake db:seed SEED_ADMIN_PASSWORD=changeme/g' foreman_server.sh
+  #if [ -f /usr/share/foreman/db/seeds.d/04-admin.rb ]; then
+  #  perl -p -i -e 's/user.password = random/user.password = changeme/g' /usr/share/foreman/db/seeds.d/04-admin.rb
+  #fi
   yes | bash -x ./foreman_server.sh
+  # .....but this does!
+  perl -p -i -e 's/random = User.random_password/random = "changeme"/' /usr/share/foreman/lib/tasks/reset_permissions.rake
+  foreman-rake permissions:reset
 }
 
 get_logs() {
