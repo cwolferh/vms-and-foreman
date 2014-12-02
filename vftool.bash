@@ -387,7 +387,7 @@ sudo virt-install --connect=qemu:///system \
     --disk $image,format=qcow2 \
     --ram 7000 \
     --vcpus $vcpus \
-    --cpu host \
+    --cpu host-model \
     --hvm \
     --os-variant rhel6 \
     --vnc \
@@ -481,7 +481,7 @@ sudo virt-install --connect=qemu:///system \
     --disk $image,format=qcow2,bus=virtio \
     --ram 7000 \
     --vcpus 3 \
-    --cpu host \
+    --cpu host-model \
     --hvm \
     --os-type linux \
     --os-variant rhel7 \
