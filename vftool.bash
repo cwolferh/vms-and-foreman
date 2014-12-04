@@ -42,7 +42,7 @@ fi
 #     3 closed named closedN
 os=unsupported
 grep -Eqs 'Red Hat Enterprise Linux Server release 6|CentOS release 6' /etc/redhat-release && os=el6 osfamily=el
-grep -Eqs 'Red Hat Enterprise Linux Server release 7|CentOS release 7' /etc/redhat-release && os=el7 osfamily=el
+grep -Eqs 'Red Hat Enterprise Linux Server release 7|CentOS Linux release 7' /etc/redhat-release && os=el7 osfamily=el
 grep -qs -P 'Fedora release 20' /etc/fedora-release && os=f20 osfamily=fedora
 if [ "$os" = "unsupported" ]; then
   echo 'vftool.bash has not been tested out of enterprise linux 6, 7 or Fedora 20'
