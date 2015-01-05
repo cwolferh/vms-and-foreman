@@ -10,6 +10,8 @@ EL6 or EL7 (though foreman itself should still run on EL6).
 Build VM's from scratch on EL6, and install Foreman to manage them for
 openstack.
 
+For CentOS 6, the EPEL, CentOS SCL and RDO repos need to be activated.
+
 Note: The *kick-first-vm subcommand* has the caveat that INSTALLURL
 must be defined before the kick-first-vm subcommand is executed.
 
