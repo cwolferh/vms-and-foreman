@@ -25,8 +25,6 @@ else
 fi
 
 # todo
-# * support cases like foreman-provisioning-test
-# * create /vs convenience link to /mnt/vm-share
 # * move /mnt/vm-share creation to new funciton, host_prep
 # * write and use exit_if_not_running( $domname)
 # *
@@ -358,6 +356,7 @@ network --bootproto=dhcp --noipv6 --device=eth0
 
 mkdir -p /mnt/vm-share
 mount $default_ip_prefix.1:/mnt/vm-share /mnt/vm-share
+ln -s /mnt/vm-share /vs
 if [ ! -d /root/.ssh ]; then
   mkdir -p /root/.ssh
   chmod 700 /root/.ssh
@@ -452,6 +451,7 @@ network --bootproto=dhcp --device=eth0
 
 mkdir -p /mnt/vm-share
 mount $default_ip_prefix.1:/mnt/vm-share /mnt/vm-share
+ln -s /mnt/vm-share /vs
 if [ ! -d /root/.ssh ]; then
   mkdir -p /root/.ssh
   chmod 700 /root/.ssh
