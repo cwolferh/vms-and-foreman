@@ -861,11 +861,11 @@ get_logs() {
 copy_log_or_warn() {
   src=$1
   dest=$2
-  if [ -f $dest ]; then
+  if [ -e $dest ]; then
     echo "NOT OVERWRITING $dest"
     return 1
   else
-    cp --no-clobber $src $dest
+    cp -ra --no-clobber $src $dest
   fi
 }
 
@@ -874,7 +874,11 @@ copy_logs_from_here() {
 
   copy_log_or_warn /var/log/messages $destdir/$(hostname -s).messages
   copy_log_or_warn /var/log/pacemaker.log $destdir/$(hostname -s).pacemkaer.log
+  copy_log_or_warn /var/log/mysqld.log $destdir/$(hostname -s).mysqld.log
   copy_log_or_warn /var/log/mariadb/mariadb.log $destdir/$(hostname -s).mariadb.log
+  for d in keystone glance nova neutron cinder ceilometer mongodb httpd horizon heat; do
+    copy_log_or_warn /var/log/$d $destdir/$(hostname -s).$d
+  done
 }
 
 foreman_provisioned_vm() {
