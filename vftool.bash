@@ -5,6 +5,8 @@ domsuffixes=${DOMSUFFIXES:="1 2 3 4 5 6"}
 poolpath=${POOLPATH:=/home/vms}
         #/var/lib/libvirt/images
 default_ip_prefix=${DEFAULT_IP_PREFIX:=192.168.7}
+vmdisksize=${VMDISKSIZE:=9G}
+
 
 if [ "x$VMSET" = "x" ]; then
   vmset=$(echo $domsuffixes | perl -p -e "s/(\S+)/$domprefix\$1/g")
@@ -315,7 +317,7 @@ kick_first_vm(){
 domname=$initimage
 image=$poolpath/$domname.qcow2
 test -f $image && fatal "image $image already exists"
-sudo /usr/bin/qemu-img create -f qcow2 -o preallocation=metadata $image 9G
+sudo /usr/bin/qemu-img create -f qcow2 -o preallocation=metadata $image $vmdisksize
 
 cat >/tmp/$domname.ks <<EOD
 %packages
@@ -327,6 +329,7 @@ emacs-common
 screen
 nc
 nmap
+mlocate
 %end
 
 reboot
@@ -403,7 +406,7 @@ el7_kick_first_vm(){
 domname=$initimage
 image=$poolpath/$domname.qcow2
 test -f $image && fatal "image $image already exists"
-sudo /usr/bin/qemu-img create -f qcow2 -o preallocation=metadata $image 9G
+sudo /usr/bin/qemu-img create -f qcow2 -o preallocation=metadata $image $vmdisksize
 
 cat >/tmp/$domname.ks <<EOD
 %packages
@@ -422,6 +425,7 @@ ntpdate
 autogen-libopts
 wget
 rsync
+mlocate
 %end
 
 reboot
@@ -876,6 +880,7 @@ copy_logs_from_here() {
   copy_log_or_warn /var/log/pacemaker.log $destdir/$(hostname -s).pacemaker.log
   copy_log_or_warn /var/log/mysqld.log $destdir/$(hostname -s).mysqld.log
   copy_log_or_warn /var/log/mariadb/mariadb.log $destdir/$(hostname -s).mariadb.log
+  copy_log_or_warn /etc $destdir/$(hostname -s).etc
   for d in keystone glance nova neutron cinder ceilometer mongodb httpd horizon heat audit; do
     copy_log_or_warn /var/log/$d $destdir/$(hostname -s).$d
   done
@@ -889,7 +894,7 @@ foreman_provisioned_vm() {
 
   domname=$1
   image=$poolpath/$domname.qcow2
-  sudo /usr/bin/qemu-img create -f qcow2 -o preallocation=metadata $image 9G
+  sudo /usr/bin/qemu-img create -f qcow2 -o preallocation=metadata $image $vmdisksize
   sudo virt-install --connect=qemu:///system \
     --network network:foreman1,mac=52:54:00:BE:EF:01 \
     --network network:openstackvms1_1 \
