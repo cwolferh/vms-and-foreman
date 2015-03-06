@@ -349,7 +349,7 @@ bootloader --location=mbr --append="console=tty0 console=ttyS0,115200 rd_NO_PLYM
 clearpart --all
 part /boot --fstype ext4 --size=400
 part swap --size=100
-part pv.01 --size=8000
+part pv.01 --size=8000 --grow
 volgroup lv_admin --pesize=32768 pv.01
 logvol / --fstype ext4 --name=lv_root --vgname=lv_admin --size=7000 --grow
 zerombr
@@ -445,7 +445,7 @@ bootloader --location=mbr --driveorder=vda,sda,hda --append="console=tty0 consol
 clearpart --all
 part /boot --fstype ext4 --size=400
 part swap --size=100
-part pv.01 --size=8000
+part pv.01 --size=8000 --grow
 volgroup lv_admin --pesize=32768 pv.01
 logvol / --fstype ext4 --name=lv_root --vgname=lv_admin --size=7000 --grow
 zerombr
@@ -1168,6 +1168,7 @@ delete_vms() {
     sudo rm /mnt/vm-share/$domname.hello
     sudo perl -p -i -e "s/^(.*$domname.*)\n\$//" /etc/hosts
     remove_dns_entry $domname
+    rm -f $poolpath/$domname.qcow2
   done
 }
 
