@@ -594,6 +594,10 @@ HOSTNAME=$domname.example.com' > $mntpnt/etc/sysconfig/network"
       #  sudo sh -c "perl -p -i -e 's/^(.*crashkernel=auto\s+.*)\$/\$1 noapic ipv6.disable=1/' $mntpnt/boot/grub2/grub.cfg"
       #fi
     fi
+    if [ "$is_el6" != "true" ]; then
+      # we want to be sure /mnt/vm-share is mounted before sshd is available
+      perl -p -i -e 's/^(After.*)$/$1 remote-fs.target/' $mntpnt/usr/lib/systemd/system/sshd.service 
+    fi 
     # ssh keys
     sudo sh -c "mkdir -p $mntpnt/root/.ssh; chmod 700 $mntpnt/root/.ssh; cp /mnt/vm-share/authorized_keys $mntpnt/root/.ssh/authorized_keys; chmod 0600 $mntpnt/root/.ssh/authorized_keys"
     sleep 2
