@@ -374,7 +374,7 @@ fi
 
 EOD
 
-sudo virt-install --connect=qemu:///system \
+virt_install_host_model="sudo virt-install --connect=qemu:///system \
     --network network:default \
     --network network:foreman1 \
     --network network:openstackvms1_1 \
@@ -383,17 +383,25 @@ sudo virt-install --connect=qemu:///system \
     --network network:openstackvms2_1 \
     --network network:openstackvms2_2 \
     --initrd-inject=/tmp/$domname.ks \
-    --extra-args="ks=file:/$domname.ks ksdevice=eth0 noipv6 ip=dhcp keymap=us lang=en_US console=tty0 console=ttyS0,115200" \
+    --extra-args='ks=file:/$domname.ks ksdevice=eth0 noipv6 ip=dhcp keymap=us lang=en_US console=tty0 console=ttyS0,115200' \
     --name=$domname \
     --location=$INSTALLURL \
     --disk $image,format=qcow2 \
     --ram 7000 \
     --vcpus $vcpus \
-    --cpu host \
+    --cpu host-model \
     --hvm \
     --os-variant rhel6 \
     --vnc \
-    --noautoconsole
+    --noautoconsole"
+
+eval $virt_install_host_model
+if [ $? -ne 0 ]; then
+  # haven't found a good way to determine whether host-model is supported, so brute force
+  echo 'trying virt-install with --cpu host instead of --cpu host-model'
+  virt_install_host=$(echo -n $virt_install_host_model | perl -p -e 's/host\-model/host/')
+  eval $virt_install_host
+fi
 
 echo "view the install (if you want) with:"
 echo "   virt-viewer --connect qemu+ssh://root@`hostname`/system $domname"
@@ -470,7 +478,7 @@ fi
 
 EOD
 
-sudo virt-install --connect=qemu:///system \
+virt_install_host_model="sudo virt-install --connect=qemu:///system \
     --network network:default \
     --network network:foreman1 \
     --network network:openstackvms1_1 \
@@ -478,19 +486,27 @@ sudo virt-install --connect=qemu:///system \
     --network network:foreman2 \
     --network network:openstackvms2_1 \
     --network network:openstackvms2_2 \
-    --initrd-inject=/tmp/$domname.ks \
-    --extra-args="ks=file:/$domname.ks ks.device=eth0 console=tty0 console=ttyS0,115200 repo=$INSTALLURL" \
+    --initrd-inject /tmp/$domname.ks \
+    --extra-args='ks=file:/$domname.ks ks.device=eth0 console=tty0 console=ttyS0,115200 repo=$INSTALLURL' \
     --name=$domname \
     --location=$INSTALLURL \
     --disk $image,format=qcow2,bus=virtio \
     --ram 7000 \
-    --vcpus 3 \
-    --cpu host \
+    --vcpus $vcpus \
+    --cpu host-model \
     --hvm \
     --os-type linux \
     --os-variant rhel7 \
     --graphics vnc \
-    --noautoconsole
+    --noautoconsole"
+
+eval $virt_install_host_model
+if [ $? -ne 0 ]; then
+  # haven't found a good way to determine whether host-model is supported, so brute force
+  echo 'trying virt-install with --cpu host instead of --cpu host-model'
+  virt_install_host=$(echo -n $virt_install_host_model | perl -p -e 's/host\-model/host/')
+  eval $virt_install_host
+fi
 
 echo "view the install (if you want) with:"
 echo "   virt-viewer --connect qemu+ssh://root@`hostname`/system $domname"
