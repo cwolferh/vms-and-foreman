@@ -434,6 +434,10 @@ autogen-libopts
 wget
 rsync
 mlocate
+python-kitchen
+yum-utils
+deltarpm
+python-deltarpm
 %end
 
 reboot
